@@ -6,7 +6,7 @@ import pandas as pd
 from tqdm import tqdm
 
 
-def turn_only_data(data_root, split="train", gt_name="moving_window_gt"):
+def turn_only_data(data_root, split="train", gt_name="moving_window_gt", convert_range=False):
     cap_dict = {}
     for turn_label in ["turn_left", "turn_right"]:
         df_index = pd.read_csv(os.path.join(data_root, f"{turn_label}_{split}.csv"))
@@ -26,6 +26,8 @@ def turn_only_data(data_root, split="train", gt_name="moving_window_gt"):
 
             success, data = cap_dict[full_run_path]["data"].read()
             data = data.astype("float64")
+            if convert_range:
+                data /= 255.0
             # success, label = cap_dict[full_run_path]["label"].read()
 
             if data_mean is None:
@@ -47,6 +49,8 @@ def turn_only_data(data_root, split="train", gt_name="moving_window_gt"):
 
             success, data = cap_dict[full_run_path]["data"].read()
             data = data.astype("float64")
+            if convert_range:
+                data /= 255.0
             # success, label = cap_dict[full_run_path]["label"].read()
 
             if data_std is None:
@@ -71,10 +75,17 @@ if __name__ == "__main__":
                         help="The method to use to compute the ground-truth.")  # TODO: probably remove this...
     parser.add_argument("-s", "--split", type=str, default="train", choices=["train", "val", "test"],
                         help="The split of the data to compute statistics for.")
+    parser.add_argument("-c", "--convert_range", action="store_true",
+                        help="Whether to convert from [0, 255] to [0, 1] range before computing the statistics.")
     # TODO: for now no selection for different subset of data (only left and right turn)
 
     # parse the arguments
     arguments = parser.parse_args()
 
     # compute the statistics
-    turn_only_data(arguments.data_root, arguments.split, f"{arguments.ground_truth_type}_gt")
+    turn_only_data(
+        data_root=arguments.data_root,
+        split=arguments.split,
+        gt_name=f"{arguments.ground_truth_type}_gt",
+        convert_range=arguments.convert_range
+    )
