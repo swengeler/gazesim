@@ -33,13 +33,9 @@ def turn_only_data(data_root, split="train", gt_name="moving_window_gt"):
             else:
                 data_mean += np.mean(data, axis=(0, 1))
 
-            if i == 99:
-                break
-
-        # data_mean /= len(df_index.index)
+        data_mean /= len(df_index.index)
         # label_mean /= len(df_index.index)
-        data_mean /= 100
-        print("Mean colour channel values for '{}' data: {}".format(turn_label, data_mean))
+        print("Mean colour channel values for '{}' data ({} split): {}".format(turn_label, split, data_mean))
 
         # compute per-channel standard deviation
         data_std = None
@@ -58,13 +54,9 @@ def turn_only_data(data_root, split="train", gt_name="moving_window_gt"):
             else:
                 data_std += np.mean((data - data_mean) ** 2, axis=(0, 1))
 
-            if i == 99:
-                break
-
-        # data_std /= len(df_index.index)
+        data_std /= len(df_index.index)
         # label_std /= len(df_index.index)
-        data_std /= 100
-        print("Standard deviation of colour channel values for '{}' data: {}\n".format(turn_label, data_std))
+        print("Standard deviation of colour channel values for '{}' data ({} split): {}\n".format(turn_label, split, data_std))
 
 
 if __name__ == "__main__":
