@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from datetime import datetime
+from tqdm import tqdm
 from src.data.dataset import get_dataset
 from src.models.vgg16 import VGG16BaseModel
 
@@ -50,6 +51,7 @@ def train(args):
 
     # define the model
     model = VGG16BaseModel()
+    model = model.to(device)
 
     # define the loss function(s)
     loss_function = nn.KLDivLoss()
@@ -65,8 +67,10 @@ def train(args):
     global_step = 0
     for epoch in range(epochs):
         # training
+        print("Starting epoch {:03d}!".format(epoch))
         running_loss = 0
-        for batch_index, (local_batch, local_labels) in enumerate(training_generator):
+        for batch_index, (local_batch, local_labels) in tqdm(enumerate(training_generator)):
+            # TODO: maybe just use tqdm for this and leave out the loss, which can be monitored with tensorboard anyway
             # transfer to GPU
             local_batch, local_labels = local_batch.to(device), local_labels.to(device)
 
@@ -93,9 +97,11 @@ def train(args):
             tb_writer.add_scalar("loss/train", current_loss, global_step)
 
             # printing out loss every X batches
+            """
             if (batch_index + 1) % arguments.print_frequency == 0:
                 current_loss = running_loss / ((batch_index + 1) * arguments.batch_size)
                 print("    Batch {:04d} (epoch {:03d}) training loss: {:.8f}".format(batch_index + 1, epoch, current_loss))
+            """
 
         # printing out the loss for this epoch
         epoch_loss = running_loss / len(training_generator)
@@ -108,14 +114,15 @@ def train(args):
                 "model_state_dict": model.state_dict(),
                 "optimiser_state_dict": optimiser.state_dict(),
                 "epoch_loss": epoch_loss
-            }, os.path.join(checkpoint_dir, "epoch{:03d}.pt"))
+            }, os.path.join(checkpoint_dir, "epoch{:03d}.pt".format(epoch)))
 
         # validation
+        print("Computing loss on validation data for epoch {:03d}!".format(epoch))
         with torch.no_grad():
             kl_running_loss = 0
             l2_running_loss = 0
 
-            for local_batch, local_labels in validation_generator:
+            for local_batch, local_labels in tqdm(validation_generator):
                 # transfer to GPU
                 local_batch, local_labels = local_batch.to(device), local_labels.to(device)
 
