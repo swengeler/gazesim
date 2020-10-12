@@ -175,6 +175,8 @@ if __name__ == "__main__":
     # generate the ground-truth
     task_queue = queue.Queue()
     for rd in iterate_directories(arguments.data_root):
+        if "s006/09_flat" in rd:
+            break
         task_queue.put_nowait(rd)
 
     try:
