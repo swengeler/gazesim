@@ -1,10 +1,14 @@
 import os
 import threading
 import queue
+import numpy as np
 import pandas as pd
 import cv2
+import tables
 
 from src.data.utils import iterate_directories, generate_gaussian_heatmap
+from tqdm import tqdm
+from time import time
 
 
 class GroundTruthGenerator(threading.Thread):
@@ -37,6 +41,18 @@ class MovingWindowGT(GroundTruthGenerator):
         self._half_window_size = int((window_size - 1) / 2)
 
     def compute_gt(self, run_dir):
+        start = time()
+
+        # initiate video capture and writer
+        video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
+        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
+
+        if not (w == 800 and h == 600):
+            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+            return
+
         # load data frames with the timestamps and positions for gaze and the frames/timestamps for the video
         df_gaze = pd.read_csv(os.path.join(run_dir, "gaze_on_surface.csv"))
         df_screen = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
@@ -71,18 +87,10 @@ class MovingWindowGT(GroundTruthGenerator):
         df_gaze = df_gaze.groupby("frame").mean()
         df_gaze["frame"] = df_gaze.index
 
-        # update the screen dataframe to write whether ground-truth could be computed for a frame to the CSV file
-        df_screen["gt_available"] = df_screen["frame"].isin(df_gaze["frame"]).astype(int)
-
-        # initiate video capture and writer
-        video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
-        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-
-        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
-
-        if not (w == 800 and h == 600):
-            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
-            return
+        # create new dataframe to write frame-level information into
+        df_frame_info = df_screen.copy()
+        df_frame_info = df_frame_info[["frame"]]
+        df_frame_info["gt_available"] = df_frame_info["frame"].isin(df_gaze["frame"]).astype(int)
 
         video_writer = cv2.VideoWriter(
             os.path.join(run_dir, "moving_window_gt.mp4"),
@@ -92,8 +100,13 @@ class MovingWindowGT(GroundTruthGenerator):
             True
         )
 
+        # file = tables.open_file(os.path.join(run_dir, "moving_window_gt.h5"), mode="w")
+        # atom = tables.UInt8Atom()
+        # array = file.create_earray(file.root, "data", atom, (0, h, w))
+
         # loop through all frames and compute the ground truth (where possible)
-        for frame_idx in df_screen["frame"]:
+        # ground_truth_list = []
+        for frame_idx in tqdm(df_screen["frame"], disable=False):
             if frame_idx >= num_frames:
                 print("Number of frames in CSV file exceeds number of frames in video!")
                 break
@@ -107,7 +120,17 @@ class MovingWindowGT(GroundTruthGenerator):
             current_mu = current_frame_data[["x", "y"]].values
             heatmap = generate_gaussian_heatmap(mu=current_mu, down_scale_factor=10)
 
+            if heatmap.max() > 0.0:
+                heatmap /= heatmap.max()
+
+            # ground_truth_list.append(heatmap.astype("float16"))
+            # array.append(np.expand_dims((heatmap * 255).astype("uint8"), 0))
+
+            heatmap = (heatmap * 255).astype("uint8")
+            heatmap = np.repeat(heatmap[:, :, np.newaxis], 3, axis=2)
+
             # load the frame and modify it
+            """
             video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
             success, image = video_capture.read()
             if success:
@@ -115,14 +138,17 @@ class MovingWindowGT(GroundTruthGenerator):
                     heatmap /= heatmap.max()
                 heatmap = cv2.applyColorMap((heatmap * 255).astype("uint8"), cv2.COLORMAP_JET)
                 image = cv2.addWeighted(image, 1.0, heatmap, 0.3, 0)
-                video_writer.write(image)
+            """
+            video_writer.write(heatmap)
 
         video_writer.release()
+        # np.save(os.path.join(run_dir, "moving_window_gt"), np.stack(ground_truth_list, axis=0))
+        # file.close()
 
         # save screen dataframe to CSV, updated with additional column
-        df_screen.to_csv(os.path.join(run_dir, "screen_timestamps.csv"), index=False)
+        df_frame_info.to_csv(os.path.join(run_dir, "screen_frame_info.csv"), index=False)
 
-        print("Saved moving window ground-truth for directory '{}'.".format(run_dir))
+        print("Saved moving window ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
 if __name__ == "__main__":
@@ -148,13 +174,16 @@ if __name__ == "__main__":
 
     # generate the ground-truth
     task_queue = queue.Queue()
-    for rd in iterate_directories(arguments.data_root)[:1]:
+    for rd in iterate_directories(arguments.data_root):
         task_queue.put_nowait(rd)
 
-    if arguments.ground_truth_type == "moving_window":
-        for _ in range(arguments.num_workers):
-            MovingWindowGT(task_queue, window_size=arguments.mw_size).start()
-    else:
-        print("No ground-truth type specified. Not generating any ground-truth.")
+    try:
+        if arguments.ground_truth_type == "moving_window":
+            for _ in range(arguments.num_workers):
+                MovingWindowGT(task_queue, window_size=arguments.mw_size).start()
+        else:
+            print("No ground-truth type specified. Not generating any ground-truth.")
+    except KeyboardInterrupt as e:
+        print(e)
 
     task_queue.join()

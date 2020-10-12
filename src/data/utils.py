@@ -14,15 +14,15 @@ from scipy.stats import multivariate_normal as mvn
 def iterate_directories(data_root, track_name="flat"):
     # loop over the subjects
     directories = []
-    for subject in os.listdir(data_root):
+    for subject in sorted(os.listdir(data_root)):
         subject_dir = os.path.join(data_root, subject)
         if os.path.isdir(subject_dir) and subject.startswith("s"):
             # loop over the experiments for each subject
-            for run in os.listdir(subject_dir):
+            for run in sorted(os.listdir(subject_dir)):
                 run_dir = os.path.join(subject_dir, run)
                 if os.path.isdir(run_dir) and track_name in run:
                     directories.append(run_dir)
-    return sorted(directories)
+    return directories
 
 
 #################################
@@ -71,7 +71,7 @@ def generate_gaussian_heatmap(width=800,
 
     values_accumulated = np.zeros((width_small, height_small))
     for m, s in tqdm(zip(mu_list, sigma_list), disable=(not show_progress)):
-        gaussian = mvn(mean=m / down_scale_factor, cov=s / (down_scale_factor ** 2))
+        gaussian = mvn(mean=(m / down_scale_factor), cov=(s / (down_scale_factor ** 2)))
         values_current = gaussian.pdf(grid)
         values_accumulated = np.maximum(values_accumulated, values_current)
 
