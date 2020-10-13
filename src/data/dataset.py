@@ -65,7 +65,7 @@ class TurnOnlyFrameDataset(Dataset):
         return frame, label
 
 
-def get_dataset(data_root, split="train", name="turn_left"):
+def get_dataset(data_root, split="train", name="turn_left", resize_height=150):
     dataset = None
 
     if name in ["turn_left", "turn_right"]:
@@ -73,13 +73,13 @@ def get_dataset(data_root, split="train", name="turn_left"):
         std = [0.02141269, 0.01657429, 0.02027875] if name == "turn_left" else [0.02108472, 0.01647169, 0.02017207]
         data_transform = transforms.Compose([
             transforms.ToPILImage(),
-            transforms.Resize(150),
+            transforms.Resize(resize_height),
             transforms.ToTensor(),
             transforms.Normalize(mean, std)
         ])
         label_transform = transforms.Compose([
             transforms.ToPILImage(),
-            transforms.Resize(150),
+            transforms.Resize(resize_height),
             transforms.ToTensor(),
             MakeValidDistribution()
         ])

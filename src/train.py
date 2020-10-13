@@ -9,8 +9,17 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from tqdm import tqdm
 from src.data.dataset import get_dataset
-from src.models.vgg16 import VGG16BaseModel
+from src.models.vgg import VGG16BaseModel
+from src.models.resnet import ResNet18BaseModel
 from src.models.utils import image_softmax, image_log_softmax, image_max
+
+
+def resolve_model_class(name):
+    if name == "vgg16":
+        return VGG16BaseModel
+    elif name == "resnet18":
+        return ResNet18BaseModel
+    return VGG16BaseModel
 
 
 def convert_attention_to_image(attention):
@@ -49,14 +58,25 @@ def train(args):
     epochs = args.epochs
 
     # generators
-    training_set = get_dataset(data_root=args.data_root, split="train", name=args.turn_type)
+    training_set = get_dataset(
+        data_root=args.data_root,
+        split="train",
+        name=args.turn_type,
+        resize_height=args.resize_height
+    )
     training_generator = DataLoader(training_set, **params)
 
-    validation_set = get_dataset(data_root=args.data_root, split="val", name=args.turn_type)
+    validation_set = get_dataset(
+        data_root=args.data_root,
+        split="val",
+        name=args.turn_type,
+        resize_height=args.resize_height
+    )
     validation_generator = DataLoader(validation_set, **params)
 
     # define the model
-    model = VGG16BaseModel()
+    model_class = resolve_model_class(arguments.model_name)
+    model = model_class()  # TODO: should be able to input arguments here as well
     model = model.to(device)
 
     # define the loss function(s)
@@ -72,6 +92,7 @@ def train(args):
         # training
         print("Starting epoch {:03d}!".format(epoch))
         running_loss = 0
+        model.train()
         for batch_index, (batch, labels) in tqdm(enumerate(training_generator)):
             # transfer to GPU
             batch, labels = batch.to(device), labels.to(device)
@@ -125,7 +146,7 @@ def train(args):
         with torch.no_grad():
             kl_running_loss = 0
             l2_running_loss = 0
-
+            model.eval()
             for batch, labels in tqdm(validation_generator):
                 # transfer to GPU
                 batch, labels = batch.to(device), labels.to(device)
@@ -158,8 +179,13 @@ if __name__ == "__main__":
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
     parser.add_argument("-t", "--turn_type", type=str, default="turn_left", choices=["turn_left", "turn_right"],
                         help="The type of turn to train on (left or right).")
+    parser.add_argument("-rh", "--resize_height", type=int, default=150,
+                        help="Height that input images and the ground-truth are rescaled to (with width being "
+                             "adjusted accordingly). For VGG16 this should be 150, for ResNet18 200.")
 
     # arguments related to training
+    parser.add_argument("-m", "--model_name", type=str, default="vgg16", choices=["vgg16", "resnet18"],
+                        help="The name of the model to use (only VGG16 and ResNet18 available currently).")
     parser.add_argument("-g", "--gpu", type=int, default=0,
                         help="GPU to use for training if any are available.")
     parser.add_argument("-w", "--num_workers", type=int, default=2,
