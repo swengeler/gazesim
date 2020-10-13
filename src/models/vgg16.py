@@ -35,7 +35,7 @@ class VGG16BaseModel(nn.Module):
             nn.ReLU(),
             nn.Upsample(size=(150, 200)),
             nn.Conv2d(in_channels=64, out_channels=1, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.Softmax2d()
+            # nn.Softmax2d()
             # no ReLU because the outputs are supposed to be log-probabilities for KL-divergence
         )
 

@@ -3,7 +3,6 @@ import json
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
@@ -11,6 +10,7 @@ from datetime import datetime
 from tqdm import tqdm
 from src.data.dataset import get_dataset
 from src.models.vgg16 import VGG16BaseModel
+from src.models.utils import image_softmax, image_log_softmax
 
 
 def train(args):
@@ -57,9 +57,6 @@ def train(args):
     loss_function = nn.KLDivLoss()
     l2_loss_function = nn.MSELoss()
 
-    def softmax_2d(x):
-        return nn.Softmax2d()(x)
-
     # define the optimizer
     optimiser = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
@@ -70,18 +67,13 @@ def train(args):
         print("Starting epoch {:03d}!".format(epoch))
         running_loss = 0
         for batch_index, (local_batch, local_labels) in tqdm(enumerate(training_generator)):
-            # TODO: maybe just use tqdm for this and leave out the loss, which can be monitored with tensorboard anyway
             # transfer to GPU
             local_batch, local_labels = local_batch.to(device), local_labels.to(device)
 
             # forward pass, loss computation and backward pass
             optimiser.zero_grad()
             predicted_labels = model(local_batch)
-            """
-            print(predicted_labels)
-            print(local_labels, "\n", local_labels.sum())
-            exit()
-            """
+            predicted_labels = image_log_softmax(predicted_labels)
             loss = loss_function(predicted_labels, local_labels)
             # loss = l2_loss_function(predicted_labels, local_labels)
             loss.backward()
@@ -129,7 +121,7 @@ def train(args):
                 # forward pass and recording the losses
                 predicted_labels = model(local_batch)
                 kl_loss = loss_function(predicted_labels, local_labels)
-                l2_loss = l2_loss_function(softmax_2d(predicted_labels), local_labels)
+                l2_loss = l2_loss_function(image_softmax(predicted_labels), local_labels)
                 kl_running_loss += kl_loss.item()
                 l2_running_loss += l2_loss.item()
 
