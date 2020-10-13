@@ -10,7 +10,13 @@ from datetime import datetime
 from tqdm import tqdm
 from src.data.dataset import get_dataset
 from src.models.vgg16 import VGG16BaseModel
-from src.models.utils import image_softmax, image_log_softmax
+from src.models.utils import image_softmax, image_log_softmax, image_max
+
+
+def convert_attention_to_image(attention):
+    # divide by the maximum
+    maximum = image_max(attention).unsqueeze(-1).unsqueeze(-1)
+    return attention / maximum
 
 
 def train(args):
@@ -66,16 +72,16 @@ def train(args):
         # training
         print("Starting epoch {:03d}!".format(epoch))
         running_loss = 0
-        for batch_index, (local_batch, local_labels) in tqdm(enumerate(training_generator)):
+        for batch_index, (batch, labels) in tqdm(enumerate(training_generator)):
             # transfer to GPU
-            local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+            batch, labels = batch.to(device), labels.to(device)
 
             # forward pass, loss computation and backward pass
             optimiser.zero_grad()
-            predicted_labels = model(local_batch)
+            predicted_labels = model(batch)
             predicted_labels = image_log_softmax(predicted_labels)
-            loss = loss_function(predicted_labels, local_labels)
-            # loss = l2_loss_function(predicted_labels, local_labels)
+            loss = loss_function(predicted_labels, labels)
+            # loss = l2_loss_function(predicted_labels, labels)
             loss.backward()
             optimiser.step()
 
@@ -85,22 +91,28 @@ def train(args):
             running_loss += current_loss
 
             # log to tensorboard
-            global_step += local_batch.shape[0]
+            global_step += batch.shape[0]
             tb_writer.add_scalar("loss/train", current_loss, global_step)
+            # TODO: also log ground-truth images vs predicted images (probably every X batches)
 
-            # printing out loss every X batches
-            """
-            if (batch_index + 1) % arguments.print_frequency == 0:
-                current_loss = running_loss / ((batch_index + 1) * arguments.batch_size)
-                print("    Batch {:04d} (epoch {:03d}) training loss: {:.8f}".format(batch_index + 1, epoch, current_loss))
-            """
+            # logging ground-truth and predicted images every X batches
+            with torch.no_grad():
+                if (batch_index + 1) % arguments.image_frequency == 0:
+                    images_l = convert_attention_to_image(labels)
+                    images_p = convert_attention_to_image(image_softmax(predicted_labels))
+
+                    # print("\n\nBefore conversion:\n", image_softmax(predicted_labels))
+                    # print("After conversion:\n", images_p)
+
+                    tb_writer.add_images("attention/ground_truth", images_l, global_step, dataformats="NCHW")
+                    tb_writer.add_images("attention/prediction", images_p, global_step, dataformats="NCHW")
 
         # printing out the loss for this epoch
         epoch_loss = running_loss / len(training_generator)
-        print("Epoch {:03d} average training loss: {:.4f}".format(epoch, epoch_loss))
+        print("Epoch {:03d} average training loss: {:.8f}".format(epoch, epoch_loss))
 
         if (epoch + 1) % arguments.checkpoint_frequency == 0:
-            print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, arguments.log_root))
+            print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, checkpoint_dir))
             torch.save({
                 "epoch": epoch,
                 "model_state_dict": model.state_dict(),
@@ -114,22 +126,22 @@ def train(args):
             kl_running_loss = 0
             l2_running_loss = 0
 
-            for local_batch, local_labels in tqdm(validation_generator):
+            for batch, labels in tqdm(validation_generator):
                 # transfer to GPU
-                local_batch, local_labels = local_batch.to(device), local_labels.to(device)
+                batch, labels = batch.to(device), labels.to(device)
 
                 # forward pass and recording the losses
-                predicted_labels = model(local_batch)
-                kl_loss = loss_function(predicted_labels, local_labels)
-                l2_loss = l2_loss_function(image_softmax(predicted_labels), local_labels)
+                predicted_labels = model(batch)
+                kl_loss = loss_function(image_log_softmax(predicted_labels), labels)
+                l2_loss = l2_loss_function(image_softmax(predicted_labels), labels)
                 kl_running_loss += kl_loss.item()
                 l2_running_loss += l2_loss.item()
 
             # printing out the validation loss
             kl_epoch_loss = kl_running_loss / len(validation_generator)
             l2_epoch_loss = l2_running_loss / len(validation_generator)
-            print("Epoch {:03d} average KL-divergence validation loss: {:.4f}".format(epoch, kl_epoch_loss))
-            print("Epoch {:03d} average MSE validation loss: {:.4f}".format(epoch, l2_epoch_loss))
+            print("Epoch {:03d} average KL-divergence validation loss: {:.8f}".format(epoch, kl_epoch_loss))
+            print("Epoch {:03d} average MSE validation loss: {:.8f}".format(epoch, l2_epoch_loss))
 
             # logging the validation loss
             tb_writer.add_scalar("loss/val/kl", kl_epoch_loss, global_step)
@@ -162,8 +174,8 @@ if __name__ == "__main__":
     # arguments related to logging information
     parser.add_argument("-lg", "--log_root", type=str, default=os.environ["GAZESIM_LOG"],
                         help="Root directory where log folders for each run should be created.")
-    parser.add_argument("-pf", "--print_frequency", type=int, default=200,
-                        help="Frequency at which to print the current average loss (in batches).")
+    parser.add_argument("-if", "--image_frequency", type=int, default=200,
+                        help="Frequency at which to log ground-truth and predicted attention as images (in batches).")
     parser.add_argument("-cf", "--checkpoint_frequency", type=int, default=1,
                         help="Frequency at which to save model checkpoints (in epochs).")
 
