@@ -10,7 +10,7 @@ from datetime import datetime
 from tqdm import tqdm
 from src.data.dataset import get_dataset
 from src.models.vgg import VGG16BaseModel
-from src.models.resnet import ResNet18BaseModel
+from src.models.resnet import ResNet18BaseModel, ResNet18BaseModelSimple
 from src.models.utils import image_softmax, image_log_softmax, image_max
 
 
@@ -19,6 +19,8 @@ def resolve_model_class(name):
         return VGG16BaseModel
     elif name == "resnet18":
         return ResNet18BaseModel
+    elif name == "resnet18_simple":
+        return ResNet18BaseModelSimple
     return VGG16BaseModel
 
 
@@ -30,7 +32,7 @@ def convert_attention_to_image(attention):
 
 def train(args):
     # creating log and checkpoint directory and saving "config" file
-    run_dir = os.path.join(arguments.log_root, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    run_dir = os.path.join(args.log_root, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
     tensorboard_dir = os.path.join(run_dir, "tensorboard")
     checkpoint_dir = os.path.join(run_dir, "checkpoints")
     if not os.path.exists(run_dir):
@@ -75,7 +77,7 @@ def train(args):
     validation_generator = DataLoader(validation_set, **params)
 
     # define the model
-    model_class = resolve_model_class(arguments.model_name)
+    model_class = resolve_model_class(args.model_name)
     model = model_class()  # TODO: should be able to input arguments here as well
     model = model.to(device)
 
@@ -84,7 +86,7 @@ def train(args):
     l2_loss_function = nn.MSELoss()
 
     # define the optimizer
-    optimiser = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    optimiser = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
     # loop over epochs
     global_step = 0
@@ -114,25 +116,21 @@ def train(args):
             # log to tensorboard
             global_step += batch.shape[0]
             tb_writer.add_scalar("loss/train", current_loss, global_step)
-            # TODO: also log ground-truth images vs predicted images (probably every X batches)
 
             # logging ground-truth and predicted images every X batches
             with torch.no_grad():
-                if (batch_index + 1) % arguments.image_frequency == 0:
+                if (batch_index + 1) % args.image_frequency == 0:
                     images_l = convert_attention_to_image(labels)
                     images_p = convert_attention_to_image(image_softmax(predicted_labels))
 
-                    # print("\n\nBefore conversion:\n", image_softmax(predicted_labels))
-                    # print("After conversion:\n", images_p)
-
-                    tb_writer.add_images("attention/ground_truth", images_l, global_step, dataformats="NCHW")
-                    tb_writer.add_images("attention/prediction", images_p, global_step, dataformats="NCHW")
+                    tb_writer.add_images("attention/train/ground_truth", images_l, global_step, dataformats="NCHW")
+                    tb_writer.add_images("attention/train/prediction", images_p, global_step, dataformats="NCHW")
 
         # printing out the loss for this epoch
         epoch_loss = running_loss / len(training_generator)
         print("Epoch {:03d} average training loss: {:.8f}".format(epoch, epoch_loss))
 
-        if (epoch + 1) % arguments.checkpoint_frequency == 0:
+        if (epoch + 1) % args.checkpoint_frequency == 0:
             print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, checkpoint_dir))
             torch.save({
                 "epoch": epoch,
@@ -147,7 +145,7 @@ def train(args):
             kl_running_loss = 0
             l2_running_loss = 0
             model.eval()
-            for batch, labels in tqdm(validation_generator):
+            for batch_index, (batch, labels) in tqdm(enumerate(validation_generator)):
                 # transfer to GPU
                 batch, labels = batch.to(device), labels.to(device)
 
@@ -157,6 +155,13 @@ def train(args):
                 l2_loss = l2_loss_function(image_softmax(predicted_labels), labels)
                 kl_running_loss += kl_loss.item()
                 l2_running_loss += l2_loss.item()
+
+                if (batch_index + 1) % args.image_frequency == 0:
+                    images_l = convert_attention_to_image(labels)
+                    images_p = convert_attention_to_image(image_softmax(predicted_labels))
+
+                    tb_writer.add_images("attention/val/ground_truth", images_l, global_step, dataformats="NCHW")
+                    tb_writer.add_images("attention/val/prediction", images_p, global_step, dataformats="NCHW")
 
             # printing out the validation loss
             kl_epoch_loss = kl_running_loss / len(validation_generator)
@@ -182,6 +187,8 @@ if __name__ == "__main__":
     parser.add_argument("-rh", "--resize_height", type=int, default=150,
                         help="Height that input images and the ground-truth are rescaled to (with width being "
                              "adjusted accordingly). For VGG16 this should be 150, for ResNet18 200.")
+    parser.add_argument("--use_pims", action="store_true",
+                        help="Whether to use PIMS (PyAV) instead of OpenCV for reading frames.")
 
     # arguments related to training
     parser.add_argument("-m", "--model_name", type=str, default="vgg16", choices=["vgg16", "resnet18"],
@@ -194,13 +201,15 @@ if __name__ == "__main__":
                         help="Batch size to use for training.")
     parser.add_argument("-e", "--epochs", type=int, default=10,
                         help="Maximum number of epochs to train for.")
-    parser.add_argument("-lr", "--learning_rate", type=float, default=0.001,
+    parser.add_argument("-lr", "--learning_rate", type=float, default=0.0001,
                         help="Learning rate (only for Adam optimiser for now).")
+    parser.add_argument("-wd", "--weight_decay", type=float, default=0.00005,
+                        help="Weight decay (only for Adam optimiser for now).")
 
     # arguments related to logging information
     parser.add_argument("-lg", "--log_root", type=str, default=os.environ["GAZESIM_LOG"],
                         help="Root directory where log folders for each run should be created.")
-    parser.add_argument("-if", "--image_frequency", type=int, default=200,
+    parser.add_argument("-if", "--image_frequency", type=int, default=50,
                         help="Frequency at which to log ground-truth and predicted attention as images (in batches).")
     parser.add_argument("-cf", "--checkpoint_frequency", type=int, default=1,
                         help="Frequency at which to save model checkpoints (in epochs).")

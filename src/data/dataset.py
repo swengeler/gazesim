@@ -6,6 +6,8 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from pims import PyAVReaderIndexed, PyAVReaderTimed
+
 
 class MakeValidDistribution(object):
 
@@ -28,7 +30,7 @@ class TurnOnlyFrameDataset(Dataset):
             data_transform=None,
             label_transform=None
     ):
-        super(TurnOnlyFrameDataset, self).__init__()
+        super().__init__()
 
         self.data_root = data_root
         self.gt_name = gt_name
@@ -42,7 +44,6 @@ class TurnOnlyFrameDataset(Dataset):
         return len(self.df_index.index)
 
     def __getitem__(self, item):
-        # TODO: need to update CSV files and change this to be relative path from the data root
         full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
         if full_run_path not in self.cap_dict:
             self.cap_dict[full_run_path] = {
@@ -65,7 +66,40 @@ class TurnOnlyFrameDataset(Dataset):
         return frame, label
 
 
-def get_dataset(data_root, split="train", name="turn_left", resize_height=150):
+class TurnOnlyFrameDatasetPIMS(TurnOnlyFrameDataset):
+
+    def __init__(
+            self,
+            data_root,
+            split="train",
+            prefix="turn_left",
+            gt_name="moving_window_gt",
+            data_transform=None,
+            label_transform=None
+    ):
+        super().__init__(data_root, split, prefix, gt_name, data_transform, label_transform)
+
+    def __getitem__(self, item):
+        full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
+        if full_run_path not in self.cap_dict:
+            self.cap_dict[full_run_path] = {
+                "data": PyAVReaderTimed(os.path.join(full_run_path, "screen.mp4"), cache_size=1),
+                "label": PyAVReaderTimed(os.path.join(full_run_path, f"{self.gt_name}.mp4"), cache_size=1)
+            }
+
+        frame_index = self.df_index["frame"].iloc[item]
+        frame = self.cap_dict[full_run_path]["data"][frame_index]
+        label = self.cap_dict[full_run_path]["label"][frame_index]
+
+        if self.data_transform:
+            frame = self.data_transform(frame)
+        if self.label_transform:
+            label = self.label_transform(label[:, :, 0])
+
+        return frame, label
+
+
+def get_dataset(data_root, split="train", name="turn_left", resize_height=150, use_pims=False):
     dataset = None
 
     if name in ["turn_left", "turn_right"]:
@@ -83,7 +117,8 @@ def get_dataset(data_root, split="train", name="turn_left", resize_height=150):
             transforms.ToTensor(),
             MakeValidDistribution()
         ])
-        dataset = TurnOnlyFrameDataset(
+        dataset_class = TurnOnlyFrameDatasetPIMS if use_pims else TurnOnlyFrameDataset
+        dataset = dataset_class(
             data_root=data_root,
             split=split,
             data_transform=data_transform,
