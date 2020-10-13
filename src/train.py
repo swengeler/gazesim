@@ -64,7 +64,8 @@ def train(args):
         data_root=args.data_root,
         split="train",
         name=args.turn_type,
-        resize_height=args.resize_height
+        resize_height=args.resize_height,
+        use_pims=args.use_pims
     )
     training_generator = DataLoader(training_set, **params)
 
@@ -72,7 +73,8 @@ def train(args):
         data_root=args.data_root,
         split="val",
         name=args.turn_type,
-        resize_height=args.resize_height
+        resize_height=args.resize_height,
+        use_pims=args.use_pims
     )
     validation_generator = DataLoader(validation_set, **params)
 
