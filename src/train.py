@@ -80,7 +80,7 @@ def train(args):
 
     # define the model
     model_class = resolve_model_class(args.model_name)
-    model = model_class()  # TODO: should be able to input arguments here as well
+    model = model_class(transfer_weights=(not args.not_pretrained))  # TODO: should be able to input arguments here as well
     model = model.to(device)
 
     # define the loss function(s)
@@ -195,6 +195,8 @@ if __name__ == "__main__":
     # arguments related to training
     parser.add_argument("-m", "--model_name", type=str, default="vgg16", choices=["vgg16", "resnet18"],
                         help="The name of the model to use (only VGG16 and ResNet18 available currently).")
+    parser.add_argument("-np", "--not_pretrained", action="store_true",
+                        help="Disable using pretrained weights for the encoder where available.")
     parser.add_argument("-g", "--gpu", type=int, default=0,
                         help="GPU to use for training if any are available.")
     parser.add_argument("-w", "--num_workers", type=int, default=2,
