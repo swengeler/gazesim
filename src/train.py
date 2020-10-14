@@ -193,7 +193,7 @@ if __name__ == "__main__":
                         help="Whether to use PIMS (PyAV) instead of OpenCV for reading frames.")
 
     # arguments related to training
-    parser.add_argument("-m", "--model_name", type=str, default="vgg16", choices=["vgg16", "resnet18"],
+    parser.add_argument("-m", "--model_name", type=str, default="vgg16", choices=["vgg16", "resnet18", "resnet18_simple"],
                         help="The name of the model to use (only VGG16 and ResNet18 available currently).")
     parser.add_argument("-np", "--not_pretrained", action="store_true",
                         help="Disable using pretrained weights for the encoder where available.")
