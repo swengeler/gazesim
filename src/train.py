@@ -1,5 +1,6 @@
 import os
 import json
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -90,13 +91,19 @@ def train(args):
     # define the optimizer
     optimiser = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
+    # prepare for doing pass over validation data args.validation_frequency times each epoch
+    validation_check = np.linspace(0, len(training_generator), args.validation_frequency + 1)
+    validation_check = np.round(validation_check).astype(int)
+    validation_check = validation_check[1:]
+
     # loop over epochs
     global_step = 0
     for epoch in range(epochs):
-        # training
         print("Starting epoch {:03d}!".format(epoch))
         running_loss = 0
         model.train()
+        validation_current = 0
+
         for batch_index, (batch, labels) in tqdm(enumerate(training_generator)):
             # transfer to GPU
             batch, labels = batch.to(device), labels.to(device)
@@ -120,6 +127,7 @@ def train(args):
             tb_writer.add_scalar("loss/train", current_loss, global_step)
 
             # logging ground-truth and predicted images every X batches
+            # also changed validation to occur here to be able to validate at higher frequency
             with torch.no_grad():
                 if (batch_index + 1) % args.image_frequency == 0:
                     images_l = convert_attention_to_image(labels)
@@ -127,6 +135,44 @@ def train(args):
 
                     tb_writer.add_images("attention/train/ground_truth", images_l, global_step, dataformats="NCHW")
                     tb_writer.add_images("attention/train/prediction", images_p, global_step, dataformats="NCHW")
+
+                if (global_step - epoch * len(training_generator)) >= validation_check[validation_current]:
+                    # run validation loop
+                    kl_running_loss = 0
+                    l2_running_loss = 0
+                    model.eval()
+                    for val_batch_index, (val_batch, val_labels) in tqdm(enumerate(validation_generator)):
+                        # transfer to GPU
+                        val_batch, val_labels = val_batch.to(device), val_labels.to(device)
+
+                        # forward pass and recording the losses
+                        predicted_labels = model(val_batch)
+                        kl_loss = loss_function(image_log_softmax(predicted_labels), val_labels)
+                        l2_loss = l2_loss_function(image_softmax(predicted_labels), val_labels)
+                        kl_running_loss += kl_loss.item()
+                        l2_running_loss += l2_loss.item()
+
+                    # printing out the validation loss
+                    kl_epoch_loss = kl_running_loss / len(validation_generator)
+                    l2_epoch_loss = l2_running_loss / len(validation_generator)
+                    # print("Epoch {:03d} average KL-divergence validation loss: {:.8f}".format(epoch, kl_epoch_loss))
+                    # print("Epoch {:03d} average MSE validation loss: {:.8f}".format(epoch, l2_epoch_loss))
+
+                    # logging the validation loss
+                    tb_writer.add_scalar("loss/val/kl", kl_epoch_loss, global_step)
+                    tb_writer.add_scalar("loss/val/l2", l2_epoch_loss, global_step)
+
+                    # logging the last batch of ground-truth data and predictions
+                    images_l = convert_attention_to_image(val_labels)
+                    images_p = convert_attention_to_image(image_softmax(predicted_labels))
+
+                    tb_writer.add_images("attention/val/ground_truth", images_l, global_step,
+                                         dataformats="NCHW")
+                    tb_writer.add_images("attention/val/prediction", images_p, global_step,
+                                         dataformats="NCHW")
+
+                    # update index for checking whether we should run validation loop
+                    validation_current += 1
 
         # printing out the loss for this epoch
         epoch_loss = running_loss / len(training_generator)
@@ -140,40 +186,6 @@ def train(args):
                 "optimiser_state_dict": optimiser.state_dict(),
                 "epoch_loss": epoch_loss
             }, os.path.join(checkpoint_dir, "epoch{:03d}.pt".format(epoch)))
-
-        # validation
-        print("Computing loss on validation data for epoch {:03d}!".format(epoch))
-        with torch.no_grad():
-            kl_running_loss = 0
-            l2_running_loss = 0
-            model.eval()
-            for batch_index, (batch, labels) in tqdm(enumerate(validation_generator)):
-                # transfer to GPU
-                batch, labels = batch.to(device), labels.to(device)
-
-                # forward pass and recording the losses
-                predicted_labels = model(batch)
-                kl_loss = loss_function(image_log_softmax(predicted_labels), labels)
-                l2_loss = l2_loss_function(image_softmax(predicted_labels), labels)
-                kl_running_loss += kl_loss.item()
-                l2_running_loss += l2_loss.item()
-
-                if (batch_index + 1) % args.image_frequency == 0:
-                    images_l = convert_attention_to_image(labels)
-                    images_p = convert_attention_to_image(image_softmax(predicted_labels))
-
-                    tb_writer.add_images("attention/val/ground_truth", images_l, global_step, dataformats="NCHW")
-                    tb_writer.add_images("attention/val/prediction", images_p, global_step, dataformats="NCHW")
-
-            # printing out the validation loss
-            kl_epoch_loss = kl_running_loss / len(validation_generator)
-            l2_epoch_loss = l2_running_loss / len(validation_generator)
-            print("Epoch {:03d} average KL-divergence validation loss: {:.8f}".format(epoch, kl_epoch_loss))
-            print("Epoch {:03d} average MSE validation loss: {:.8f}".format(epoch, l2_epoch_loss))
-
-            # logging the validation loss
-            tb_writer.add_scalar("loss/val/kl", kl_epoch_loss, global_step)
-            tb_writer.add_scalar("loss/val/l2", l2_epoch_loss, global_step)
 
 
 if __name__ == "__main__":
@@ -193,7 +205,7 @@ if __name__ == "__main__":
                         help="Whether to use PIMS (PyAV) instead of OpenCV for reading frames.")
 
     # arguments related to training
-    parser.add_argument("-m", "--model_name", type=str, default="vgg16", choices=["vgg16", "resnet18"],
+    parser.add_argument("-m", "--model_name", type=str, default="vgg16", choices=["vgg16", "resnet18", "resnet18_simple"],
                         help="The name of the model to use (only VGG16 and ResNet18 available currently).")
     parser.add_argument("-g", "--gpu", type=int, default=0,
                         help="GPU to use for training if any are available.")
@@ -213,6 +225,9 @@ if __name__ == "__main__":
                         help="Root directory where log folders for each run should be created.")
     parser.add_argument("-if", "--image_frequency", type=int, default=50,
                         help="Frequency at which to log ground-truth and predicted attention as images (in batches).")
+    parser.add_argument("-vf", "--validation_frequency", type=int, default=1,
+                        help="How often to compute the validation loss during each epoch. When set to 1 "
+                             "(the default value) this is only done at the end of the epoch, as is standard.")
     parser.add_argument("-cf", "--checkpoint_frequency", type=int, default=1,
                         help="Frequency at which to save model checkpoints (in epochs).")
 
