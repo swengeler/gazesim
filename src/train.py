@@ -81,7 +81,7 @@ def train(args):
 
     # define the model
     model_class = resolve_model_class(args.model_name)
-    model = model_class(transfer_weights=(not args.not_pretrained))  # TODO: should be able to input arguments here as well
+    model = model_class(transfer_weights=(not args.not_pretrained))
     model = model.to(device)
 
     # define the loss function(s)
@@ -92,9 +92,10 @@ def train(args):
     optimiser = torch.optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
     # prepare for doing pass over validation data args.validation_frequency times each epoch
-    validation_check = np.linspace(0, len(training_generator), args.validation_frequency + 1)
+    validation_check = np.linspace(0, len(training_set), args.validation_frequency + 1)
     validation_check = np.round(validation_check).astype(int)
     validation_check = validation_check[1:]
+    print("VALIDATION_CHECK:", validation_check)
 
     # loop over epochs
     global_step = 0
@@ -104,7 +105,7 @@ def train(args):
         model.train()
         validation_current = 0
 
-        for batch_index, (batch, labels) in tqdm(enumerate(training_generator)):
+        for batch_index, (batch, labels) in tqdm(enumerate(training_generator), total=len(training_generator)):
             # transfer to GPU
             batch, labels = batch.to(device), labels.to(device)
 
@@ -141,7 +142,7 @@ def train(args):
                     kl_running_loss = 0
                     l2_running_loss = 0
                     model.eval()
-                    for val_batch_index, (val_batch, val_labels) in tqdm(enumerate(validation_generator)):
+                    for val_batch_index, (val_batch, val_labels) in tqdm(enumerate(validation_generator), disable=True):
                         # transfer to GPU
                         val_batch, val_labels = val_batch.to(device), val_labels.to(device)
 
