@@ -137,7 +137,7 @@ def train(args):
                     tb_writer.add_images("attention/train/ground_truth", images_l, global_step, dataformats="NCHW")
                     tb_writer.add_images("attention/train/prediction", images_p, global_step, dataformats="NCHW")
 
-                if (global_step - epoch * len(training_generator)) >= validation_check[validation_current]:
+                if (global_step - epoch * len(training_set)) >= validation_check[validation_current]:
                     # run validation loop
                     kl_running_loss = 0
                     l2_running_loss = 0
