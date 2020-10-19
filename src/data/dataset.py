@@ -8,6 +8,13 @@ from torchvision import transforms
 
 from pims import PyAVReaderIndexed, PyAVReaderTimed
 
+# TODO: this will definitely have to be changed to something more elegant
+# TODO: would probably also be good to put this in some config file together with train, val, test indices etc.
+CHANNEL_MEAN_LEFT_TURN = [0.21415611, 0.21116218, 0.23293883]
+CHANNEL_MEAN_RIGHT_TURN = [0.21929578, 0.21621058, 0.23851419]
+CHANNEL_STD_LEFT_TURN = [0.02141269, 0.01657429, 0.02027875]
+CHANNEL_STD_RIGHT_TURN = [0.02108472, 0.01647169, 0.02017207]
+
 
 class MakeValidDistribution(object):
 
@@ -19,7 +26,7 @@ class MakeValidDistribution(object):
         return sample
 
 
-class TurnOnlyFrameDataset(Dataset):
+class TurnOnlyDataset(Dataset):
 
     def __init__(
             self,
@@ -50,11 +57,20 @@ class TurnOnlyFrameDataset(Dataset):
             self.df_index = self.df_index.iloc[sub_index[0]:sub_index[1]]
             self.df_index = self.df_index.reset_index()
 
-        self.cap_dict = {}
-        self.return_original = False
-
     def __len__(self):
         return len(self.df_index.index)
+
+    def __getitem__(self, item):
+        raise NotImplementedError
+
+
+class TurnOnlyFrameDataset(TurnOnlyDataset):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.cap_dict = {}
+        self.return_original = False
 
     def __getitem__(self, item):
         full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
@@ -85,17 +101,6 @@ class TurnOnlyFrameDataset(Dataset):
 
 class TurnOnlyFrameDatasetPIMS(TurnOnlyFrameDataset):
 
-    def __init__(
-            self,
-            data_root,
-            split="train",
-            prefix="turn_left",
-            gt_name="moving_window_gt",
-            data_transform=None,
-            label_transform=None
-    ):
-        super().__init__(data_root, split, prefix, gt_name, data_transform, label_transform)
-
     def __getitem__(self, item):
         full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
         if full_run_path not in self.cap_dict:
@@ -103,6 +108,8 @@ class TurnOnlyFrameDatasetPIMS(TurnOnlyFrameDataset):
                 "data": PyAVReaderTimed(os.path.join(full_run_path, "screen.mp4"), cache_size=1),
                 "label": PyAVReaderTimed(os.path.join(full_run_path, f"{self.gt_name}.mp4"), cache_size=1)
             }
+            # TODO: could probably simplify a lot by just having a "setup" for the cap_dict
+            #  and a method for getting a frame (and each class implements it differently)
 
         frame_index = self.df_index["frame"].iloc[item]
         frame = self.cap_dict[full_run_path]["data"][frame_index]
@@ -120,18 +127,113 @@ class TurnOnlyFrameDatasetPIMS(TurnOnlyFrameDataset):
         return frame, label
 
 
+class DroneControlDataset(Dataset):
+
+    def __init__(
+            self,
+            data_root,
+            split="train",
+            prefix="turn_left",
+            gt_name="moving_window_gt",
+            data_transform=None,
+            label_transform=None,
+            sub_index=None
+    ):
+        super().__init__()
+
+        # TODO: this is not the prettiest structure, maybe dividing datasets into "frame" datasets and
+        #  "regression" (maybe also "classification") datasets is the way to go, because for one an index
+        #  should be loaded, whereas for the other the data should already be in the dataframe
+        #  ==> ACTUALLY, since we need to load frames for either of the datasets we need an index anyway,
+        #  so my initial structure (everything subclassing one Dataset with the index) did make some sense;
+        #  might want to change it back to that
+
+        self.data_root = data_root
+        self.gt_name = gt_name
+        self.data_transform = data_transform
+        self.label_transform = label_transform
+
+        if prefix == "turn_both":
+            # index now contains both the information for finding the input frames and the actual "labels"
+            # TODO: might make more sense to separate this, at least in the structure of the dataset
+            df_left = pd.read_csv(os.path.join(self.data_root, f"turn_left_drone_control_gt_{split}.csv"))
+            df_right = pd.read_csv(os.path.join(self.data_root, f"turn_right_drone_control_gt_{split}.csv"))
+            self.df_index = pd.concat([df_left, df_right], ignore_index=True)
+        else:
+            self.df_index = pd.read_csv(os.path.join(self.data_root, f"{prefix}_{split}.csv"))
+
+        if sub_index:
+            # assume that sub_index is an iterable with two entries (start and end index)
+            self.df_index = self.df_index.iloc[sub_index[0]:sub_index[1]]
+            self.df_index = self.df_index.reset_index()
+
+        self.cap_dict = {}
+        self.return_original = False
+
+    def __len__(self):
+        return len(self.df_index.index)
+
+    def __getitem__(self, item):
+        full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
+        if full_run_path not in self.cap_dict:
+            self.cap_dict[full_run_path] = cv2.VideoCapture(os.path.join(full_run_path, "screen.mp4"))
+
+        # loading the frame
+        frame_index = self.df_index["frame"].iloc[item]
+        self.cap_dict[full_run_path].set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        success, frame = self.cap_dict[full_run_path].read()
+
+        frame_original = frame.copy()
+        if self.data_transform:
+            frame = self.data_transform(frame)
+
+        # selecting the label
+        label = self.df_index[["Throttle", "Roll", "Pitch", "Yaw"]].iloc[item].values
+        label = torch.from_numpy(label).float()
+
+        if self.return_original:
+            return frame, label, frame_original, label
+        return frame, label
+
+
+class DroneControlDatasetPIMS(DroneControlDataset):
+
+    def __getitem__(self, item):
+        full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
+        if full_run_path not in self.cap_dict:
+            self.cap_dict[full_run_path] = PyAVReaderTimed(os.path.join(full_run_path, "screen.mp4"), cache_size=1)
+
+        # loading the frame
+        frame_index = self.df_index["frame"].iloc[item]
+        frame = self.cap_dict[full_run_path][frame_index]
+
+        frame_original = frame.copy()
+        if self.data_transform:
+            frame = self.data_transform(frame)
+
+        # selecting the label
+        label = self.df_index[["Throttle", "Roll", "Pitch", "Yaw"]].iloc[item].values
+        label = torch.from_numpy(label).float()
+
+        if self.return_original:
+            return frame, label, frame_original, label
+        return frame, label
+
+
 def get_dataset(data_root, split="train", name="turn_left", resize_height=150, use_pims=False, sub_index=None):
     dataset = None
 
+    mean = CHANNEL_MEAN_LEFT_TURN if "turn_left" in name else CHANNEL_MEAN_RIGHT_TURN
+    std = CHANNEL_STD_LEFT_TURN if "turn_left" in name else CHANNEL_STD_RIGHT_TURN
+
+    data_transform = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.Resize(resize_height),
+        transforms.ToTensor(),
+        transforms.Normalize(mean, std)
+    ])
+
     if name in ["turn_left", "turn_right", "turn_both"]:
-        mean = [0.21415611, 0.21116218, 0.23293883] if name == "turn_left" else [0.21929578, 0.21621058, 0.23851419]
-        std = [0.02141269, 0.01657429, 0.02027875] if name == "turn_left" else [0.02108472, 0.01647169, 0.02017207]
-        data_transform = transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize(resize_height),
-            transforms.ToTensor(),
-            transforms.Normalize(mean, std)
-        ])
         label_transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(resize_height),
@@ -142,12 +244,21 @@ def get_dataset(data_root, split="train", name="turn_left", resize_height=150, u
         dataset = dataset_class(
             data_root=data_root,
             split=split,
+            prefix=name,
             data_transform=data_transform,
             label_transform=label_transform,
             sub_index=sub_index
         )
-
-    # TODO: add dataset loading drone state/drone commands ==> average for each frame
+    elif name in ["turn_left_drone_control_gt", "turn_right_drone_control_gt", "turn_both_drone_control_gt"]:
+        dataset_class = DroneControlDatasetPIMS if use_pims else DroneControlDataset
+        dataset = dataset_class(
+            data_root=data_root,
+            split=split,
+            prefix=name,
+            gt_name="drone_control_gt",
+            data_transform=data_transform,
+            sub_index=sub_index
+        )
 
     # TODO: add dataset using all available "valid" frames
 
@@ -156,7 +267,7 @@ def get_dataset(data_root, split="train", name="turn_left", resize_height=150, u
 
 if __name__ == "__main__":
     # test that everything with the dataset works as intended
-    ds = get_dataset(os.environ["GAZESIM_ROOT"])
+    ds = get_dataset(os.getenv("GAZESIM_ROOT"), name="turn_left_drone_control_gt")
     print("Dataset length:", len(ds))
     test_data, test_label = ds[0]
     print("test_data:", type(test_data), test_data.shape, test_data.min(), test_data.max())
