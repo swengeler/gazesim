@@ -14,8 +14,29 @@ from time import time
 class GroundTruthGenerator(threading.Thread):
 
     def __init__(self, q, *args, **kwargs):
-        super(GroundTruthGenerator, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.q = q
+
+    @staticmethod
+    def filter_by_screen_ts(df_screen, df_other):
+        # use only those timestamps that can be matched to the "screen" video
+        first_screen_ts = df_screen["ts"].iloc[0]
+        last_screen_ts = df_screen["ts"].iloc[-1]
+        df_other = df_other[(first_screen_ts <= df_other["ts"]) & (df_other["ts"] <= last_screen_ts)]
+
+        # compute timestamp windows around each frame to "sort" the gaze measurements into
+        frame_ts_prev = df_screen["ts"].values[:-1]
+        frame_ts_next = df_screen["ts"].values[1:]
+        frame_ts_midpoint = ((frame_ts_prev + frame_ts_next) / 2).tolist()
+        frame_ts_midpoint.insert(0, first_screen_ts)
+        frame_ts_midpoint.append(last_screen_ts)
+
+        # update the gaze dataframe with the "screen" frames
+        # TODO: maybe should just put this in a separate column and save in the CSV file?
+        for frame_idx, (ts_prev, ts_next) in enumerate(zip(frame_ts_midpoint[:-1], frame_ts_midpoint[1:])):
+            df_other.loc[(ts_prev <= df_other["ts"]) & (df_other["ts"] < ts_next), "frame"] = frame_idx
+
+        return df_screen, df_other
 
     def compute_gt(self, run_dir):
         raise NotImplementedError()
@@ -33,7 +54,7 @@ class GroundTruthGenerator(threading.Thread):
 class MovingWindowGT(GroundTruthGenerator):
 
     def __init__(self, *args, window_size=25, **kwargs):
-        super(MovingWindowGT, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
         # make sure the input is correct
         assert window_size > 0 and window_size % 2 == 1
@@ -63,22 +84,8 @@ class MovingWindowGT(GroundTruthGenerator):
         df_gaze["x"] = df_gaze["x"] * 800
         df_gaze["y"] = (1.0 - df_gaze["y"]) * 600
 
-        # use only those timestamps that can be matched to the "screen" video
-        first_screen_ts = df_screen["ts"].iloc[0]
-        last_screen_ts = df_screen["ts"].iloc[-1]
-        df_gaze = df_gaze[(first_screen_ts <= df_gaze["ts"]) & (df_gaze["ts"] <= last_screen_ts)]
-
-        # compute timestamp windows around each frame to "sort" the gaze measurements into
-        frame_ts_prev = df_screen["ts"].values[:-1]
-        frame_ts_next = df_screen["ts"].values[1:]
-        frame_ts_midpoint = ((frame_ts_prev + frame_ts_next) / 2).tolist()
-        frame_ts_midpoint.insert(0, first_screen_ts)
-        frame_ts_midpoint.append(last_screen_ts)
-
-        # update the gaze dataframe with the "screen" frames
-        # TODO: maybe should just put this in a separate column and save in the CSV file?
-        for frame_idx, (ts_prev, ts_next) in enumerate(zip(frame_ts_midpoint[:-1], frame_ts_midpoint[1:])):
-            df_gaze.loc[(ts_prev <= df_gaze["ts"]) & (df_gaze["ts"] < ts_next), "frame"] = frame_idx
+        # filter by screen timestamps
+        df_screen, df_gaze = GroundTruthGenerator.filter_by_screen_ts(df_screen, df_gaze)
 
         # since the measurements are close together and to reduce computational load,
         # compute the mean measurement for each frame
@@ -151,6 +158,44 @@ class MovingWindowGT(GroundTruthGenerator):
         print("Saved moving window ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
+class DroneControlGT(GroundTruthGenerator):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def compute_gt(self, run_dir):
+        # define paths
+        df_drone_path = os.path.join(run_dir, "drone.csv")
+        df_screen_path = os.path.join(run_dir, "screen_timestamps.csv")
+        df_screen_info_path = os.path.join(run_dir, "screen_frame_info.csv")
+
+        # load dataframes
+        df_drone = pd.read_csv(df_drone_path)
+        df_screen = pd.read_csv(df_screen_path)
+        df_screen_info = pd.read_csv(df_screen_info_path)
+
+        # select only the necessary data from the gaze dataframe and compute the on-screen coordinates
+        df_drone = df_drone[["ts", "Throttle", "Roll", "Pitch", "Yaw"]]
+        df_drone["frame"] = -1
+
+        # filter by screen timestamps
+        df_screen, df_drone = GroundTruthGenerator.filter_by_screen_ts(df_screen, df_drone)
+
+        # compute the mean measurement for each frame
+        df_drone = df_drone[["frame", "Throttle", "Roll", "Pitch", "Yaw"]]
+        df_drone = df_drone.groupby("frame").mean()
+        df_drone["frame"] = df_drone.index
+        df_drone = df_drone.reset_index(drop=True)
+        df_drone = df_drone[["frame", "Throttle", "Roll", "Pitch", "Yaw"]]
+
+        # add information about control GT being available to frame-wise screen info
+        df_screen_info["control_gt_available"] = df_screen_info["frame"].isin(df_drone["frame"]).astype(int)
+        df_screen_info.to_csv(df_screen_info_path, index=False)
+
+        # save drone stuff
+        df_drone.to_csv(os.path.join(run_dir, "drone_control_gt.csv"), index=False)
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -161,7 +206,8 @@ if __name__ == "__main__":
                         help="The number of workers to use for generating the ground-truth.")
     parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    parser.add_argument("-t", "--ground_truth_type", type=str, default="moving_window", choices=["moving_window"],
+    parser.add_argument("-t", "--ground_truth_type", type=str, default="moving_window",
+                        choices=["moving_window", "drone_control"],
                         help="The method to use to compute the ground-truth.")
 
     # arguments only used for moving_window
@@ -183,6 +229,9 @@ if __name__ == "__main__":
         if arguments.ground_truth_type == "moving_window":
             for _ in range(arguments.num_workers):
                 MovingWindowGT(task_queue, window_size=arguments.mw_size).start()
+        elif arguments.ground_truth_type == "drone_control":
+            for _ in range(arguments.num_workers):
+                DroneControlGT(task_queue).start()
         else:
             print("No ground-truth type specified. Not generating any ground-truth.")
     except KeyboardInterrupt as e:
