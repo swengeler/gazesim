@@ -28,7 +28,8 @@ class TurnOnlyFrameDataset(Dataset):
             prefix="turn_left",
             gt_name="moving_window_gt",
             data_transform=None,
-            label_transform=None
+            label_transform=None,
+            sub_index=None
     ):
         super().__init__()
 
@@ -37,8 +38,20 @@ class TurnOnlyFrameDataset(Dataset):
         self.data_transform = data_transform
         self.label_transform = label_transform
 
-        self.df_index = pd.read_csv(os.path.join(self.data_root, f"{prefix}_{split}.csv"))
+        if prefix == "turn_both":
+            df_left = pd.read_csv(os.path.join(self.data_root, f"turn_left_{split}.csv"))
+            df_right = pd.read_csv(os.path.join(self.data_root, f"turn_right_{split}.csv"))
+            self.df_index = pd.concat([df_left, df_right], ignore_index=True)
+        else:
+            self.df_index = pd.read_csv(os.path.join(self.data_root, f"{prefix}_{split}.csv"))
+
+        if sub_index:
+            # assume that sub_index is an iterable with two entries (start and end index)
+            self.df_index = self.df_index.iloc[sub_index[0]:sub_index[1]]
+            self.df_index = self.df_index.reset_index()
+
         self.cap_dict = {}
+        self.return_original = False
 
     def __len__(self):
         return len(self.df_index.index)
@@ -58,11 +71,15 @@ class TurnOnlyFrameDataset(Dataset):
         success, frame = self.cap_dict[full_run_path]["data"].read()
         success, label = self.cap_dict[full_run_path]["label"].read()
 
+        frame_original = frame.copy()
+        label_original = label.copy()
         if self.data_transform:
             frame = self.data_transform(frame)
         if self.label_transform:
             label = self.label_transform(label[:, :, 0])
 
+        if self.return_original:
+            return frame, label, frame_original, label_original
         return frame, label
 
 
@@ -91,18 +108,22 @@ class TurnOnlyFrameDatasetPIMS(TurnOnlyFrameDataset):
         frame = self.cap_dict[full_run_path]["data"][frame_index]
         label = self.cap_dict[full_run_path]["label"][frame_index]
 
+        frame_original = frame.copy()
+        label_original = label.copy()
         if self.data_transform:
             frame = self.data_transform(frame)
         if self.label_transform:
             label = self.label_transform(label[:, :, 0])
 
+        if self.return_original:
+            return frame, label, frame_original, label_original
         return frame, label
 
 
-def get_dataset(data_root, split="train", name="turn_left", resize_height=150, use_pims=False):
+def get_dataset(data_root, split="train", name="turn_left", resize_height=150, use_pims=False, sub_index=None):
     dataset = None
 
-    if name in ["turn_left", "turn_right"]:
+    if name in ["turn_left", "turn_right", "turn_both"]:
         mean = [0.21415611, 0.21116218, 0.23293883] if name == "turn_left" else [0.21929578, 0.21621058, 0.23851419]
         std = [0.02141269, 0.01657429, 0.02027875] if name == "turn_left" else [0.02108472, 0.01647169, 0.02017207]
         data_transform = transforms.Compose([
@@ -122,8 +143,13 @@ def get_dataset(data_root, split="train", name="turn_left", resize_height=150, u
             data_root=data_root,
             split=split,
             data_transform=data_transform,
-            label_transform=label_transform
+            label_transform=label_transform,
+            sub_index=sub_index
         )
+
+    # TODO: add dataset loading drone state/drone commands ==> average for each frame
+
+    # TODO: add dataset using all available "valid" frames
 
     return dataset
 
