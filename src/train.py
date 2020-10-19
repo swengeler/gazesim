@@ -11,7 +11,7 @@ from datetime import datetime
 from tqdm import tqdm
 from src.data.dataset import get_dataset
 from src.models.vgg import VGG16BaseModel
-from src.models.resnet import ResNet18BaseModel, ResNet18BaseModelSimple
+from src.models.resnet import ResNet18BaseModel, ResNet18BaseModelSimple, ResNet18SimpleRegressor
 from src.models.utils import image_softmax, image_log_softmax, image_max
 
 
@@ -22,6 +22,8 @@ def resolve_model_class(name):
         return ResNet18BaseModel
     elif name == "resnet18_simple":
         return ResNet18BaseModelSimple
+    elif name == "resnet18_simple_regressor":
+        return ResNet18SimpleRegressor
     return VGG16BaseModel
 
 
@@ -85,7 +87,10 @@ def train(args):
     model = model.to(device)
 
     # define the loss function(s)
-    loss_function = nn.KLDivLoss()
+    if "drone_control_gt" in args.turn_type:
+        loss_function = nn.MSELoss()
+    else:
+        loss_function = nn.KLDivLoss()
     l2_loss_function = nn.MSELoss()
 
     # define the optimizer
@@ -95,7 +100,7 @@ def train(args):
     validation_check = np.linspace(0, len(training_set), args.validation_frequency + 1)
     validation_check = np.round(validation_check).astype(int)
     validation_check = validation_check[1:]
-    print("VALIDATION_CHECK:", validation_check)
+    # print("VALIDATION_CHECK:", validation_check)
 
     # loop over epochs
     global_step = 0
@@ -112,7 +117,8 @@ def train(args):
             # forward pass, loss computation and backward pass
             optimiser.zero_grad()
             predicted_labels = model(batch)
-            predicted_labels = image_log_softmax(predicted_labels)
+            if "drone_control_gt" not in args.turn_type:
+                predicted_labels = image_log_softmax(predicted_labels)
             loss = loss_function(predicted_labels, labels)
             # loss = l2_loss_function(predicted_labels, labels)
             loss.backward()
@@ -130,7 +136,7 @@ def train(args):
             # logging ground-truth and predicted images every X batches
             # also changed validation to occur here to be able to validate at higher frequency
             with torch.no_grad():
-                if (batch_index + 1) % args.image_frequency == 0:
+                if "drone_control_gt" not in args.turn_type and (batch_index + 1) % args.image_frequency == 0:
                     images_l = convert_attention_to_image(labels)
                     images_p = convert_attention_to_image(image_softmax(predicted_labels))
 
@@ -138,42 +144,65 @@ def train(args):
                     tb_writer.add_images("attention/train/prediction", images_p, global_step, dataformats="NCHW")
 
                 if (global_step - epoch * len(training_set)) >= validation_check[validation_current]:
-                    # run validation loop
-                    kl_running_loss = 0
-                    l2_running_loss = 0
-                    model.eval()
-                    for val_batch_index, (val_batch, val_labels) in tqdm(enumerate(validation_generator), disable=True):
-                        # transfer to GPU
-                        val_batch, val_labels = val_batch.to(device), val_labels.to(device)
+                    if "drone_control_gt" not in args.turn_type:
+                        # run validation loop
+                        kl_running_loss = 0
+                        l2_running_loss = 0
+                        log_batch = None
+                        model.eval()
+                        for val_batch_index, (val_batch, val_labels) in tqdm(enumerate(validation_generator), disable=True):
+                            # transfer to GPU
+                            val_batch, val_labels = val_batch.to(device), val_labels.to(device)
 
-                        # forward pass and recording the losses
-                        predicted_labels = model(val_batch)
-                        kl_loss = loss_function(image_log_softmax(predicted_labels), val_labels)
-                        l2_loss = l2_loss_function(image_softmax(predicted_labels), val_labels)
-                        kl_running_loss += kl_loss.item()
-                        l2_running_loss += l2_loss.item()
+                            # forward pass and recording the losses
+                            predicted_labels = model(val_batch)
+                            kl_loss = loss_function(image_log_softmax(predicted_labels), val_labels)
+                            l2_loss = l2_loss_function(image_softmax(predicted_labels), val_labels)
+                            kl_running_loss += kl_loss.item()
+                            l2_running_loss += l2_loss.item()
 
-                    # printing out the validation loss
-                    kl_epoch_loss = kl_running_loss / len(validation_generator)
-                    l2_epoch_loss = l2_running_loss / len(validation_generator)
-                    # print("Epoch {:03d} average KL-divergence validation loss: {:.8f}".format(epoch, kl_epoch_loss))
-                    # print("Epoch {:03d} average MSE validation loss: {:.8f}".format(epoch, l2_epoch_loss))
+                            if log_batch is None:
+                                log_batch = (val_labels, predicted_labels)
 
-                    # logging the validation loss
-                    tb_writer.add_scalar("loss/val/kl", kl_epoch_loss, global_step)
-                    tb_writer.add_scalar("loss/val/l2", l2_epoch_loss, global_step)
+                        # printing out the validation loss
+                        kl_epoch_loss = kl_running_loss / len(validation_generator)
+                        l2_epoch_loss = l2_running_loss / len(validation_generator)
 
-                    # logging the last batch of ground-truth data and predictions
-                    images_l = convert_attention_to_image(val_labels)
-                    images_p = convert_attention_to_image(image_softmax(predicted_labels))
+                        # logging the validation loss
+                        tb_writer.add_scalar("loss/val/kl", kl_epoch_loss, global_step)
+                        tb_writer.add_scalar("loss/val/l2", l2_epoch_loss, global_step)
 
-                    tb_writer.add_images("attention/val/ground_truth", images_l, global_step,
-                                         dataformats="NCHW")
-                    tb_writer.add_images("attention/val/prediction", images_p, global_step,
-                                         dataformats="NCHW")
+                        # logging the last batch of ground-truth data and predictions
+                        images_l = convert_attention_to_image(log_batch[0])
+                        images_p = convert_attention_to_image(image_softmax(log_batch[1]))
+
+                        tb_writer.add_images("attention/val/ground_truth", images_l, global_step,
+                                             dataformats="NCHW")
+                        tb_writer.add_images("attention/val/prediction", images_p, global_step,
+                                             dataformats="NCHW")
+                    else:
+                        # run validation loop
+                        val_running_loss = 0
+                        model.eval()
+                        for val_batch_index, (val_batch, val_labels) in tqdm(enumerate(validation_generator),
+                                                                             disable=True):
+                            # transfer to GPU
+                            val_batch, val_labels = val_batch.to(device), val_labels.to(device)
+
+                            # forward pass and recording the losses
+                            predicted_labels = model(val_batch)
+                            val_loss = loss_function(predicted_labels, val_labels)
+                            val_running_loss += val_loss.item()
+
+                        # printing out the validation loss
+                        val_epoch_loss = val_running_loss / len(validation_generator)
+
+                        # logging the validation loss
+                        tb_writer.add_scalar("loss/val", val_epoch_loss, global_step)
 
                     # update index for checking whether we should run validation loop
                     validation_current += 1
+                    model.train()
 
         # printing out the loss for this epoch
         epoch_loss = running_loss / len(training_generator)
@@ -197,7 +226,9 @@ if __name__ == "__main__":
     # arguments related to the dataset
     parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    parser.add_argument("-t", "--turn_type", type=str, default="turn_left", choices=["turn_left", "turn_right"],
+    parser.add_argument("-t", "--turn_type", type=str, default="turn_left",
+                        choices=["turn_left", "turn_right", "turn_both", "turn_left_drone_control_gt",
+                                 "turn_right_drone_control_gt", "turn_both_drone_control_gt"],
                         help="The type of turn to train on (left or right).")
     parser.add_argument("-rh", "--resize_height", type=int, default=150,
                         help="Height that input images and the ground-truth are rescaled to (with width being "
@@ -206,7 +237,8 @@ if __name__ == "__main__":
                         help="Whether to use PIMS (PyAV) instead of OpenCV for reading frames.")
 
     # arguments related to training
-    parser.add_argument("-m", "--model_name", type=str, default="vgg16", choices=["vgg16", "resnet18", "resnet18_simple"],
+    parser.add_argument("-m", "--model_name", type=str, default="vgg16",
+                        choices=["vgg16", "resnet18", "resnet18_simple", "resnet18_simple_regressor"],
                         help="The name of the model to use (only VGG16 and ResNet18 available currently).")
     parser.add_argument("-np", "--not_pretrained", action="store_true",
                         help="Disable using pretrained weights for the encoder where available.")
@@ -220,7 +252,7 @@ if __name__ == "__main__":
                         help="Maximum number of epochs to train for.")
     parser.add_argument("-lr", "--learning_rate", type=float, default=0.0001,
                         help="Learning rate (only for Adam optimiser for now).")
-    parser.add_argument("-wd", "--weight_decay", type=float, default=0.00005,
+    parser.add_argument("-wd", "--weight_decay", type=float, default=0.0,
                         help="Weight decay (only for Adam optimiser for now).")
 
     # arguments related to logging information
