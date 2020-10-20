@@ -10,10 +10,10 @@ from pims import PyAVReaderIndexed, PyAVReaderTimed
 
 # TODO: this will definitely have to be changed to something more elegant
 # TODO: would probably also be good to put this in some config file together with train, val, test indices etc.
-CHANNEL_MEAN_LEFT_TURN = [0.21415611, 0.21116218, 0.23293883]
-CHANNEL_MEAN_RIGHT_TURN = [0.21929578, 0.21621058, 0.23851419]
-CHANNEL_STD_LEFT_TURN = [0.02141269, 0.01657429, 0.02027875]
-CHANNEL_STD_RIGHT_TURN = [0.02108472, 0.01647169, 0.02017207]
+CHANNEL_MEAN_LEFT_TURN = [0.23293883, 0.21116218, 0.21415611]
+CHANNEL_MEAN_RIGHT_TURN = [0.23851419, 0.21621058, 0.21929578]
+CHANNEL_STD_LEFT_TURN = [0.02027875, 0.01657429, 0.02141269]
+CHANNEL_STD_RIGHT_TURN = [0.02017207, 0.01647169, 0.02108472]
 
 
 class MakeValidDistribution(object):
@@ -264,7 +264,7 @@ class SingleVideoDataset(Dataset):
 
         label = None
         if self.df_frame_info["gt_available"].iloc[item] == 1:
-            label = cv2.cvtColor(self.cap_dict["label"].read()[1])
+            label = cv2.cvtColor(self.cap_dict["label"].read()[1], cv2.COLOR_BGR2RGB)
 
         frame_original = frame.copy()
         if self.data_transform is not None:
