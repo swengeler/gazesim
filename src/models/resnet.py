@@ -3,6 +3,7 @@ import torch.nn as nn
 import torchvision.models as models
 
 from torchsummary import summary
+from src.models.layers import ControlActivationLayer
 
 
 class ResNet18BaseModel(nn.Module):
@@ -103,10 +104,9 @@ class ResNet18SimpleRegressor(nn.Module):
 
         # defining the upscaling layers to get out the original image size again
         self.regressor = nn.Sequential(
-            nn.Linear(128, 4)
+            nn.Linear(128, 4),
+            ControlActivationLayer()
         )
-
-        # TODO: probably add tanh/sigmoid
 
     def forward(self, x):
         x = self.features(x)

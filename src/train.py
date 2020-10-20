@@ -183,22 +183,32 @@ def train(args):
                     else:
                         # run validation loop
                         val_running_loss = 0
+                        individual_controls = torch.zeros((4,)).to(device)
                         model.eval()
                         for val_batch_index, (val_batch, val_labels) in tqdm(enumerate(validation_generator),
                                                                              disable=True):
                             # transfer to GPU
                             val_batch, val_labels = val_batch.to(device), val_labels.to(device)
 
-                            # forward pass and recording the losses
+                            # forward pass and recording the loss
                             predicted_labels = model(val_batch)
                             val_loss = loss_function(predicted_labels, val_labels)
                             val_running_loss += val_loss.item()
 
+                            # compute L2-error for each individual command
+                            individual_loss = nn.functional.mse_loss(predicted_labels, val_labels, reduction="none")
+                            individual_loss = torch.mean(individual_loss, dim=0)
+                            individual_controls += individual_loss
+
                         # printing out the validation loss
                         val_epoch_loss = val_running_loss / len(validation_generator)
 
-                        # logging the validation loss
-                        tb_writer.add_scalar("loss/val", val_epoch_loss, global_step)
+                        # logging the validation loss and individual errors
+                        tb_writer.add_scalar("loss/val/total", val_epoch_loss, global_step)
+                        tb_writer.add_scalar("loss/val/thrust", individual_controls[0], global_step)
+                        tb_writer.add_scalar("loss/val/roll", individual_controls[1], global_step)
+                        tb_writer.add_scalar("loss/val/pitch", individual_controls[2], global_step)
+                        tb_writer.add_scalar("loss/val/yaw", individual_controls[3], global_step)
 
                     # update index for checking whether we should run validation loop
                     validation_current += 1
