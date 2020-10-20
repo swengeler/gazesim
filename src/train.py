@@ -11,7 +11,7 @@ from datetime import datetime
 from tqdm import tqdm
 from src.data.dataset import get_dataset
 from src.models.vgg import VGG16BaseModel
-from src.models.resnet import ResNet18BaseModel, ResNet18BaseModelSimple, ResNet18SimpleRegressor
+from src.models.resnet import ResNet18BaseModel, ResNet18BaseModelSimple, ResNet18Regressor, ResNet18SimpleRegressor
 from src.models.utils import image_softmax, image_log_softmax, image_max
 
 
@@ -22,6 +22,8 @@ def resolve_model_class(name):
         return ResNet18BaseModel
     elif name == "resnet18_simple":
         return ResNet18BaseModelSimple
+    elif name == "resnet18_regressor":
+        return ResNet18Regressor
     elif name == "resnet18_simple_regressor":
         return ResNet18SimpleRegressor
     return VGG16BaseModel
@@ -204,7 +206,7 @@ def train(args):
                         val_epoch_loss = val_running_loss / len(validation_generator)
 
                         # logging the validation loss and individual errors
-                        tb_writer.add_scalar("loss/val/total", val_epoch_loss, global_step)
+                        tb_writer.add_scalar("loss/val", val_epoch_loss, global_step)
                         tb_writer.add_scalar("loss/val/thrust", individual_controls[0], global_step)
                         tb_writer.add_scalar("loss/val/roll", individual_controls[1], global_step)
                         tb_writer.add_scalar("loss/val/pitch", individual_controls[2], global_step)
@@ -248,7 +250,8 @@ if __name__ == "__main__":
 
     # arguments related to training
     parser.add_argument("-m", "--model_name", type=str, default="vgg16",
-                        choices=["vgg16", "resnet18", "resnet18_simple", "resnet18_simple_regressor"],
+                        choices=["vgg16", "resnet18", "resnet18_simple", "resnet18_regressor",
+                                 "resnet18_simple_regressor"],
                         help="The name of the model to use (only VGG16 and ResNet18 available currently).")
     parser.add_argument("-np", "--not_pretrained", action="store_true",
                         help="Disable using pretrained weights for the encoder where available.")

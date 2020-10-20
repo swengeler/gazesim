@@ -85,6 +85,35 @@ class ResNet18BaseModelSimple(nn.Module):
         return x
 
 
+class ResNet18Regressor(nn.Module):
+
+    def __init__(self, module_transfer_depth=7, transfer_weights=True):
+        super().__init__()
+
+        # defining the feature-extracting CNN using VGG16 layers as a basis
+        resnet18 = models.resnet18(transfer_weights)
+        modules = list(resnet18.children())[:module_transfer_depth]
+
+        self.features = nn.Sequential(*modules)
+        # shape will be [-1, 256, 19, 25] after this with module_transfer_depth 7 and input height 300
+
+        # pooling layer, using the same as ResNet for now
+        self.pooling = nn.AdaptiveAvgPool2d((1, 1))
+
+        # defining the upscaling layers to get out the original image size again
+        self.regressor = nn.Sequential(
+            nn.Linear(256, 4),
+            ControlActivationLayer()
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.pooling(x)
+        x = x.reshape(x.size(0), -1)
+        x = self.regressor(x)
+        return x
+
+
 class ResNet18SimpleRegressor(nn.Module):
 
     def __init__(self, module_transfer_depth=6, transfer_weights=True):
@@ -97,9 +126,7 @@ class ResNet18SimpleRegressor(nn.Module):
         self.features = nn.Sequential(*modules)
         # shape will be [-1, 128, 38, 50] after this with module_transfer_depth 6 and input height 300
 
-        # TODO: need to add some sort of pooling and fully-connected regressor
-        # self.pooling = nn.MaxPool2d((3, 3))
-        # self.pooling = nn.AvgPool2d((3, 3))
+        # pooling layer, using the same as ResNet for now
         self.pooling = nn.AdaptiveAvgPool2d((1, 1))
 
         # defining the upscaling layers to get out the original image size again
