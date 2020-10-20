@@ -9,7 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from datetime import datetime
 from tqdm import tqdm
-from src.data.dataset import get_dataset
+from src.data.datasets import get_dataset
 from src.models.vgg import VGG16BaseModel
 from src.models.resnet import ResNet18BaseModel, ResNet18BaseModelSimple, ResNet18Regressor, ResNet18SimpleRegressor
 from src.models.utils import image_softmax, image_log_softmax, image_max
@@ -204,6 +204,7 @@ def train(args):
 
                         # printing out the validation loss
                         val_epoch_loss = val_running_loss / len(validation_generator)
+                        individual_controls = individual_controls / len(validation_generator)
 
                         # logging the validation loss and individual errors
                         tb_writer.add_scalar("loss/val", val_epoch_loss, global_step)
@@ -248,13 +249,17 @@ if __name__ == "__main__":
     parser.add_argument("--use_pims", action="store_true",
                         help="Whether to use PIMS (PyAV) instead of OpenCV for reading frames.")
 
-    # arguments related to training
+    # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str, default="vgg16",
                         choices=["vgg16", "resnet18", "resnet18_simple", "resnet18_regressor",
                                  "resnet18_simple_regressor"],
                         help="The name of the model to use (only VGG16 and ResNet18 available currently).")
     parser.add_argument("-np", "--not_pretrained", action="store_true",
                         help="Disable using pretrained weights for the encoder where available.")
+    parser.add_argument("-ar", "--activate_regressor", action="store_true",
+                        help="Whether to use activation functions for the regressor output.")
+
+    # arguments related to training
     parser.add_argument("-g", "--gpu", type=int, default=0,
                         help="GPU to use for training if any are available.")
     parser.add_argument("-w", "--num_workers", type=int, default=2,
