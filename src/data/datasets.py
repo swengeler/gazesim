@@ -220,6 +220,89 @@ class DroneControlDatasetPIMS(DroneControlDataset):
         return frame, label
 
 
+class SingleVideoDataset(Dataset):
+
+    def __init__(
+            self,
+            run_dir,
+            gt_name="moving_window_gt",
+            data_transform=None,
+            label_transform=None,
+            sub_index=None
+    ):
+        # need path to the run directory for the video
+        # can then get access to the input video and GT video
+        # not sure if anything else (e.g. screen_frame_info) will be needed/useful (maybe for sub-indexing?)
+        self.run_dir = run_dir
+        self.gt_name = gt_name
+        self.data_transform = data_transform
+        self.label_transform = label_transform
+
+        # dataframe with all frames
+        # TODO: think about whether this should automatically be sub-indexing to only include frames with GT?
+        self.df_frame_info = pd.read_csv(os.path.join(self.run_dir, "screen_frame_info.csv"))
+        self.cap_dict = {}
+        self.return_original = False
+
+        if sub_index:
+            self.df_frame_info = self.df_frame_info.iloc[sub_index[0]:sub_index[1]]
+            self.df_frame_info = self.df_frame_info.reset_index()
+
+    def __len__(self):
+        return len(self.df_frame_info.index)
+
+    def __getitem__(self, item):
+        if "data" not in self.cap_dict:
+            self.cap_dict["data"] = cv2.VideoCapture(os.path.join(self.run_dir, "screen.mp4"))
+            self.cap_dict["label"] = cv2.VideoCapture(os.path.join(self.run_dir, f"{self.gt_name}.mp4"))
+
+        frame_index = self.df_frame_info["frame"].iloc[item]
+        self.cap_dict["data"].set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+        self.cap_dict["label"].set(cv2.CAP_PROP_POS_FRAMES, frame_index)
+
+        success, frame = self.cap_dict["data"].read()
+
+        label = None
+        if self.df_frame_info["gt_available"].iloc[item] == 1:
+            success, label = self.cap_dict["label"].read()
+
+        frame_original = frame.copy()
+        if self.data_transform is not None:
+            frame = self.data_transform(frame)
+        if label is not None and self.label_transform is not None:
+            label = self.label_transform(label[:, :, 0])
+
+        if self.return_original:
+            return frame, label, frame_original
+        return frame, label
+
+
+class SingleVideoDatasetPIMS(SingleVideoDataset):
+
+    def __getitem__(self, item):
+        if "data" not in self.cap_dict:
+            # PyAVReaderTimed(os.path.join(full_run_path, "screen.mp4"), cache_size=1)
+            self.cap_dict["data"] = PyAVReaderTimed(os.path.join(self.run_dir, "screen.mp4"), cache_size=1)
+            self.cap_dict["label"] = PyAVReaderTimed(os.path.join(self.run_dir, f"{self.gt_name}.mp4"), cache_size=1)
+
+        frame_index = self.df_frame_info["frame"].iloc[item]
+        frame = self.cap_dict["data"][frame_index]
+
+        label = None
+        if self.df_frame_info["gt_available"].iloc[item] == 1:
+            label = self.cap_dict["label"][frame_index]
+
+        frame_original = frame.copy()
+        if self.data_transform is not None:
+            frame = self.data_transform(frame)
+        if label is not None and self.label_transform is not None:
+            label = self.label_transform(label[:, :, 0])
+
+        if self.return_original:
+            return frame, label, frame_original
+        return frame, label
+
+
 def get_dataset(data_root, split="train", name="turn_left", resize_height=150, use_pims=False, sub_index=None):
     dataset = None
 
@@ -257,6 +340,21 @@ def get_dataset(data_root, split="train", name="turn_left", resize_height=150, u
             prefix=name,
             gt_name="drone_control_gt",
             data_transform=data_transform,
+            sub_index=sub_index
+        )
+    elif name == "single_video":
+        label_transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize(resize_height),
+            transforms.ToTensor(),
+            MakeValidDistribution()
+        ])
+        dataset_class = SingleVideoDatasetPIMS if use_pims else SingleVideoDataset
+        dataset = dataset_class(
+            run_dir=data_root,
+            gt_name="moving_window_gt",
+            data_transform=data_transform,
+            label_transform=label_transform,
             sub_index=sub_index
         )
 
