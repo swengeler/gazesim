@@ -24,7 +24,7 @@ def turn_only_data(data_root, split="train", gt_name="moving_window_gt", convert
             cap_dict[full_run_path]["data"].set(cv2.CAP_PROP_POS_FRAMES, row["frame"])
             # cap_dict[full_run_path]["label"].set(cv2.CAP_PROP_POS_FRAMES, row["frame"])
 
-            success, data = cap_dict[full_run_path]["data"].read()
+            data = cv2.cvtColor(cap_dict[full_run_path]["data"].read()[1], cv2.COLOR_BGR2RGB)
             data = data.astype("float64")
             if convert_range:
                 data /= 255.0
@@ -47,7 +47,7 @@ def turn_only_data(data_root, split="train", gt_name="moving_window_gt", convert
             cap_dict[full_run_path]["data"].set(cv2.CAP_PROP_POS_FRAMES, row["frame"])
             # cap_dict[full_run_path]["label"].set(cv2.CAP_PROP_POS_FRAMES, row["frame"])
 
-            success, data = cap_dict[full_run_path]["data"].read()
+            data = cv2.cvtColor(cap_dict[full_run_path]["data"].read()[1], cv2.COLOR_BGR2RGB)
             data = data.astype("float64")
             if convert_range:
                 data /= 255.0

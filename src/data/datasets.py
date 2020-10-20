@@ -84,8 +84,8 @@ class TurnOnlyFrameDataset(TurnOnlyDataset):
         self.cap_dict[full_run_path]["data"].set(cv2.CAP_PROP_POS_FRAMES, frame_index)
         self.cap_dict[full_run_path]["label"].set(cv2.CAP_PROP_POS_FRAMES, frame_index)
 
-        success, frame = self.cap_dict[full_run_path]["data"].read()
-        success, label = self.cap_dict[full_run_path]["label"].read()
+        frame = cv2.cvtColor(self.cap_dict[full_run_path]["data"].read()[1], cv2.COLOR_BGR2RGB)
+        label = cv2.cvtColor(self.cap_dict[full_run_path]["label"].read()[1], cv2.COLOR_BGR2RGB)
 
         frame_original = frame.copy()
         label_original = label.copy()
@@ -181,7 +181,7 @@ class DroneControlDataset(Dataset):
         # loading the frame
         frame_index = self.df_index["frame"].iloc[item]
         self.cap_dict[full_run_path].set(cv2.CAP_PROP_POS_FRAMES, frame_index)
-        success, frame = self.cap_dict[full_run_path].read()
+        frame = cv2.cvtColor(self.cap_dict[full_run_path].read()[1], cv2.COLOR_BGR2RGB)
 
         frame_original = frame.copy()
         if self.data_transform:
@@ -260,11 +260,11 @@ class SingleVideoDataset(Dataset):
         self.cap_dict["data"].set(cv2.CAP_PROP_POS_FRAMES, frame_index)
         self.cap_dict["label"].set(cv2.CAP_PROP_POS_FRAMES, frame_index)
 
-        success, frame = self.cap_dict["data"].read()
+        frame = cv2.cvtColor(self.cap_dict["data"].read()[1], cv2.COLOR_BGR2RGB)
 
         label = None
         if self.df_frame_info["gt_available"].iloc[item] == 1:
-            success, label = self.cap_dict["label"].read()
+            label = cv2.cvtColor(self.cap_dict["label"].read()[1])
 
         frame_original = frame.copy()
         if self.data_transform is not None:
