@@ -303,11 +303,11 @@ class SingleVideoDatasetPIMS(SingleVideoDataset):
         return frame, label
 
 
-def get_dataset(data_root, split="train", name="turn_left", resize_height=150, use_pims=False, sub_index=None):
+def get_dataset(data_root, split="train", data_type="turn_left", resize_height=150, use_pims=False, sub_index=None):
     dataset = None
 
-    mean = CHANNEL_MEAN_LEFT_TURN if "turn_left" in name else CHANNEL_MEAN_RIGHT_TURN
-    std = CHANNEL_STD_LEFT_TURN if "turn_left" in name else CHANNEL_STD_RIGHT_TURN
+    mean = CHANNEL_MEAN_LEFT_TURN if "turn_left" in data_type else CHANNEL_MEAN_RIGHT_TURN
+    std = CHANNEL_STD_LEFT_TURN if "turn_left" in data_type else CHANNEL_STD_RIGHT_TURN
 
     data_transform = transforms.Compose([
         transforms.ToPILImage(),
@@ -316,7 +316,7 @@ def get_dataset(data_root, split="train", name="turn_left", resize_height=150, u
         transforms.Normalize(mean, std)
     ])
 
-    if name in ["turn_left", "turn_right", "turn_both"]:
+    if data_type in ["turn_left", "turn_right", "turn_both"]:
         label_transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(resize_height),
@@ -327,22 +327,22 @@ def get_dataset(data_root, split="train", name="turn_left", resize_height=150, u
         dataset = dataset_class(
             data_root=data_root,
             split=split,
-            prefix=name,
+            prefix=data_type,
             data_transform=data_transform,
             label_transform=label_transform,
             sub_index=sub_index
         )
-    elif name in ["turn_left_drone_control_gt", "turn_right_drone_control_gt", "turn_both_drone_control_gt"]:
+    elif data_type in ["turn_left_drone_control_gt", "turn_right_drone_control_gt", "turn_both_drone_control_gt"]:
         dataset_class = DroneControlDatasetPIMS if use_pims else DroneControlDataset
         dataset = dataset_class(
             data_root=data_root,
             split=split,
-            prefix=name,
+            prefix=data_type,
             gt_name="drone_control_gt",
             data_transform=data_transform,
             sub_index=sub_index
         )
-    elif name == "single_video":
+    elif data_type == "single_video":
         label_transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(resize_height),
@@ -365,7 +365,7 @@ def get_dataset(data_root, split="train", name="turn_left", resize_height=150, u
 
 if __name__ == "__main__":
     # test that everything with the dataset works as intended
-    ds = get_dataset(os.getenv("GAZESIM_ROOT"), name="turn_left_drone_control_gt")
+    ds = get_dataset(os.getenv("GAZESIM_ROOT"), data_type="turn_left_drone_control_gt")
     print("Dataset length:", len(ds))
     test_data, test_label = ds[0]
     print("test_data:", type(test_data), test_data.shape, test_data.min(), test_data.max())

@@ -41,7 +41,7 @@ def handle_single_video(args, run_dir, frame_info_path, gt_video_path):
     df_frame_info = pd.read_csv(frame_info_path)
 
     # create the dataset
-    video_dataset = get_dataset(run_dir, name="single_video", resize_height=300, use_pims=args.use_pims)
+    video_dataset = get_dataset(run_dir, data_type="single_video", resize_height=300, use_pims=args.use_pims)
     video_dataset.return_original = True
 
     # determine size and where to position things based on the output mode

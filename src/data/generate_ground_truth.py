@@ -4,9 +4,8 @@ import queue
 import numpy as np
 import pandas as pd
 import cv2
-import tables
 
-from src.data.utils import iterate_directories, generate_gaussian_heatmap
+from src.data.utils import iterate_directories, generate_gaussian_heatmap, filter_by_screen_ts
 from tqdm import tqdm
 from time import time
 
@@ -16,27 +15,6 @@ class GroundTruthGenerator(threading.Thread):
     def __init__(self, q, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.q = q
-
-    @staticmethod
-    def filter_by_screen_ts(df_screen, df_other):
-        # use only those timestamps that can be matched to the "screen" video
-        first_screen_ts = df_screen["ts"].iloc[0]
-        last_screen_ts = df_screen["ts"].iloc[-1]
-        df_other = df_other[(first_screen_ts <= df_other["ts"]) & (df_other["ts"] <= last_screen_ts)]
-
-        # compute timestamp windows around each frame to "sort" the gaze measurements into
-        frame_ts_prev = df_screen["ts"].values[:-1]
-        frame_ts_next = df_screen["ts"].values[1:]
-        frame_ts_midpoint = ((frame_ts_prev + frame_ts_next) / 2).tolist()
-        frame_ts_midpoint.insert(0, first_screen_ts)
-        frame_ts_midpoint.append(last_screen_ts)
-
-        # update the gaze dataframe with the "screen" frames
-        # TODO: maybe should just put this in a separate column and save in the CSV file?
-        for frame_idx, (ts_prev, ts_next) in enumerate(zip(frame_ts_midpoint[:-1], frame_ts_midpoint[1:])):
-            df_other.loc[(ts_prev <= df_other["ts"]) & (df_other["ts"] < ts_next), "frame"] = frame_idx
-
-        return df_screen, df_other
 
     def compute_gt(self, run_dir):
         raise NotImplementedError()
@@ -85,7 +63,7 @@ class MovingWindowGT(GroundTruthGenerator):
         df_gaze["y"] = (1.0 - df_gaze["y"]) * 600
 
         # filter by screen timestamps
-        df_screen, df_gaze = GroundTruthGenerator.filter_by_screen_ts(df_screen, df_gaze)
+        df_screen, df_gaze = filter_by_screen_ts(df_screen, df_gaze)
 
         # since the measurements are close together and to reduce computational load,
         # compute the mean measurement for each frame
@@ -107,12 +85,7 @@ class MovingWindowGT(GroundTruthGenerator):
             True
         )
 
-        # file = tables.open_file(os.path.join(run_dir, "moving_window_gt.h5"), mode="w")
-        # atom = tables.UInt8Atom()
-        # array = file.create_earray(file.root, "data", atom, (0, h, w))
-
         # loop through all frames and compute the ground truth (where possible)
-        # ground_truth_list = []
         for frame_idx in tqdm(df_screen["frame"], disable=False):
             if frame_idx >= num_frames:
                 print("Number of frames in CSV file exceeds number of frames in video!")
@@ -130,27 +103,13 @@ class MovingWindowGT(GroundTruthGenerator):
             if heatmap.max() > 0.0:
                 heatmap /= heatmap.max()
 
-            # ground_truth_list.append(heatmap.astype("float16"))
-            # array.append(np.expand_dims((heatmap * 255).astype("uint8"), 0))
-
             heatmap = (heatmap * 255).astype("uint8")
             heatmap = np.repeat(heatmap[:, :, np.newaxis], 3, axis=2)
 
             # load the frame and modify it
-            """
-            video_capture.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
-            success, image = video_capture.read()
-            if success:
-                if heatmap.max() > 0.0:
-                    heatmap /= heatmap.max()
-                heatmap = cv2.applyColorMap((heatmap * 255).astype("uint8"), cv2.COLORMAP_JET)
-                image = cv2.addWeighted(image, 1.0, heatmap, 0.3, 0)
-            """
             video_writer.write(heatmap)
 
         video_writer.release()
-        # np.save(os.path.join(run_dir, "moving_window_gt"), np.stack(ground_truth_list, axis=0))
-        # file.close()
 
         # save screen dataframe to CSV, updated with additional column
         df_frame_info.to_csv(os.path.join(run_dir, "screen_frame_info.csv"), index=False)
@@ -179,7 +138,7 @@ class DroneControlGT(GroundTruthGenerator):
         df_drone["frame"] = -1
 
         # filter by screen timestamps
-        df_screen, df_drone = GroundTruthGenerator.filter_by_screen_ts(df_screen, df_drone)
+        df_screen, df_drone = filter_by_screen_ts(df_screen, df_drone)
 
         # compute the mean measurement for each frame
         df_drone = df_drone[["frame", "Throttle", "Roll", "Pitch", "Yaw"]]

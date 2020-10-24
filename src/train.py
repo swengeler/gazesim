@@ -68,7 +68,7 @@ def train(args):
     training_set = get_dataset(
         data_root=args.data_root,
         split="train",
-        name=args.turn_type,
+        data_type=args.data_type,
         resize_height=args.resize_height,
         use_pims=args.use_pims
     )
@@ -77,7 +77,7 @@ def train(args):
     validation_set = get_dataset(
         data_root=args.data_root,
         split="val",
-        name=args.turn_type,
+        data_type=args.data_type,
         resize_height=args.resize_height,
         use_pims=args.use_pims
     )
@@ -89,7 +89,7 @@ def train(args):
     model = model.to(device)
 
     # define the loss function(s)
-    if "drone_control_gt" in args.turn_type:
+    if "drone_control_gt" in args.data_type:
         loss_function = nn.MSELoss()
     else:
         loss_function = nn.KLDivLoss()
@@ -119,7 +119,7 @@ def train(args):
             # forward pass, loss computation and backward pass
             optimiser.zero_grad()
             predicted_labels = model(batch)
-            if "drone_control_gt" not in args.turn_type:
+            if "drone_control_gt" not in args.data_type:
                 predicted_labels = image_log_softmax(predicted_labels)
             loss = loss_function(predicted_labels, labels)
             # loss = l2_loss_function(predicted_labels, labels)
@@ -138,7 +138,7 @@ def train(args):
             # logging ground-truth and predicted images every X batches
             # also changed validation to occur here to be able to validate at higher frequency
             with torch.no_grad():
-                if "drone_control_gt" not in args.turn_type and (batch_index + 1) % args.image_frequency == 0:
+                if "drone_control_gt" not in args.data_type and (batch_index + 1) % args.image_frequency == 0:
                     images_l = convert_attention_to_image(labels)
                     images_p = convert_attention_to_image(image_softmax(predicted_labels))
 
@@ -146,7 +146,7 @@ def train(args):
                     tb_writer.add_images("attention/train/prediction", images_p, global_step, dataformats="NCHW")
 
                 if (global_step - epoch * len(training_set)) >= validation_check[validation_current]:
-                    if "drone_control_gt" not in args.turn_type:
+                    if "drone_control_gt" not in args.data_type:
                         # run validation loop
                         kl_running_loss = 0
                         l2_running_loss = 0
@@ -239,9 +239,10 @@ if __name__ == "__main__":
     # arguments related to the dataset
     parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    parser.add_argument("-t", "--turn_type", type=str, default="turn_left",
+    parser.add_argument("-t", "--data_type", type=str, default="turn_left",
                         choices=["turn_left", "turn_right", "turn_both", "turn_left_drone_control_gt",
-                                 "turn_right_drone_control_gt", "turn_both_drone_control_gt"],
+                                 "turn_right_drone_control_gt", "turn_both_drone_control_gt",
+                                 "soft_mask", "hard_mask", "mean_mask"],
                         help="The type of turn to train on (left or right).")
     parser.add_argument("-rh", "--resize_height", type=int, default=150,
                         help="Height that input images and the ground-truth are rescaled to (with width being "

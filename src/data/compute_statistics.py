@@ -6,7 +6,7 @@ import pandas as pd
 from tqdm import tqdm
 
 
-def turn_only_data(data_root, split="train", gt_name="moving_window_gt", convert_range=False):
+def turn_only_data(data_root, split="train", video_name="screen", gt_name="moving_window_gt", convert_range=False):
     cap_dict = {}
     for turn_label in ["turn_left", "turn_right"]:
         df_index = pd.read_csv(os.path.join(data_root, f"{turn_label}_{split}.csv"))
@@ -17,7 +17,7 @@ def turn_only_data(data_root, split="train", gt_name="moving_window_gt", convert
             full_run_path = os.path.join(data_root, row["rel_run_path"])
             if full_run_path not in cap_dict:
                 cap_dict[full_run_path] = {
-                    "data": cv2.VideoCapture(os.path.join(full_run_path, "screen.mp4")),
+                    "data": cv2.VideoCapture(os.path.join(full_run_path, f"{video_name}.mp4")),
                     # "label": cv2.VideoCapture(os.path.join(full_run_path, f"{gt_name}.mp4"))
                 }
 
@@ -71,8 +71,10 @@ if __name__ == "__main__":
     # general arguments
     parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    parser.add_argument("-t", "--ground_truth_type", type=str, default="moving_window", choices=["moving_window"],
-                        help="The method to use to compute the ground-truth.")  # TODO: probably remove this...
+    parser.add_argument("-t", "--ground_truth_type", type=str, default="moving_window_gt", choices=["moving_window_gt"],
+                        help="The method to use to compute the ground-truth.")
+    parser.add_argument("-v", "--video_name", type=str, default="screen",
+                        help="Video (masked or others).")
     parser.add_argument("-s", "--split", type=str, default="train", choices=["train", "val", "test"],
                         help="The split of the data to compute statistics for.")
     parser.add_argument("-c", "--convert_range", action="store_true",
@@ -86,6 +88,7 @@ if __name__ == "__main__":
     turn_only_data(
         data_root=arguments.data_root,
         split=arguments.split,
-        gt_name=f"{arguments.ground_truth_type}_gt",
+        video_name=arguments.video_name,
+        gt_name=arguments.ground_truth_type,
         convert_range=arguments.convert_range
     )
