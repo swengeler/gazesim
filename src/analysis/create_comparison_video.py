@@ -6,9 +6,10 @@ import cv2
 import torch
 
 from tqdm import tqdm
-from src.models.utils import image_log_softmax, image_softmax
+from src.models.utils import image_softmax
 from src.models.resnet import ResNet18BaseModelSimple
 from src.data.datasets import get_dataset
+from src.data.utils import filter_by_screen_ts
 
 # TODO options for which "frames" to include
 # - include only those with GT given
@@ -16,7 +17,7 @@ from src.data.datasets import get_dataset
 # - split non-adjacent sections into separately videos/clips (maybe a bit overkill?)
 
 
-def handle_single_video(args, run_dir, frame_info_path, gt_video_path):
+def handle_single_video(args, run_dir, frame_info_path):
     # create the directory structure to save the video
     rel_run_dir = os.path.relpath(run_dir, os.path.abspath(os.path.join(run_dir, os.pardir, os.pardir)))
     log_dir = os.path.abspath(os.path.join(os.path.dirname(args.model_path), os.pardir))
@@ -47,6 +48,7 @@ def handle_single_video(args, run_dir, frame_info_path, gt_video_path):
     # determine size and where to position things based on the output mode
     output_size = (400, 300)
     positions = {}
+    df_gaze = None
     if args.output_mode == "overlay_maps":
         output_size = (400 * 2, 300 + 100)
         positions["ground_truth"] = (10, 40)
@@ -71,6 +73,19 @@ def handle_single_video(args, run_dir, frame_info_path, gt_video_path):
         positions["expected_trajectory"] = (10, 75)
         positions["turn_left"] = (410, 40)
         positions["turn_right"] = (810, 40)
+    elif args.output_mode == "overlay_raw":
+        output_size = (400, 300 + 100)
+        positions["ground_truth"] = (10, 40)
+        positions["prediction"] = (10, 75)
+
+        df_gaze = pd.read_csv(os.path.join(run_dir, "gaze_on_surface.csv"))
+        df_gaze = df_gaze[["ts", "frame", "norm_x_su", "norm_y_su"]]
+        df_gaze.columns = ["ts", "frame", "x", "y"]
+        df_gaze["x"] = (df_gaze["x"] * 800) / 2
+        df_gaze["y"] = ((1.0 - df_gaze["y"]) * 600) / 2
+
+        df_screen = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
+        df_screen, df_gaze = filter_by_screen_ts(df_screen, df_gaze)
 
     # extract FPS and codec information and create the video writer
     if run_dir not in video_dataset.cap_dict:
@@ -80,8 +95,6 @@ def handle_single_video(args, run_dir, frame_info_path, gt_video_path):
     fps, fourcc = (video_capture.get(i) for i in range(5, 7))
     video_name = f"{args.ground_truth_name}_comparison_{args.output_mode}.mp4"
     video_writer = cv2.VideoWriter(os.path.join(save_dir, video_name), int(fourcc), fps, output_size, True)
-    # TODO: should probably put some other info in the title (e.g. which "kind" of video it is)
-    # on the other hand, since this is for one model it is already clear which data that model was trained on
 
     # loop through all frames in frame_info
     for _, row in tqdm(df_frame_info.iterrows(), total=len(df_frame_info.index)):
@@ -118,7 +131,6 @@ def handle_single_video(args, run_dir, frame_info_path, gt_video_path):
         label = (label * 255).astype("uint8")
         predicted_label = (predicted_label * 255).astype("uint8")
 
-        # TODO: for now just overlaying both maps in one image => need to add the other options too
         # set all but one colour channel for GT and predicted labels to 0
         label[:, :, 1:] = 0
         predicted_label[:, :, :-1] = 0
@@ -137,25 +149,36 @@ def handle_single_video(args, run_dir, frame_info_path, gt_video_path):
         elif args.output_mode == "overlay_none":
             new_frame = np.hstack((frame, label, predicted_label))
             temp[100:, :, :] = new_frame
+        elif args.output_mode == "overlay_raw":
+            frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)
+            combined_labels = cv2.addWeighted(label, 0.5, predicted_label, 0.5, 0)
+            new_frame = cv2.addWeighted(frame, 0.3, combined_labels, 0.7, 0)
+
+            current_gaze = df_gaze[df_gaze["frame"] == row["frame"]]
+            for _, gaze_row in current_gaze.iterrows():
+                cv2.circle(new_frame, (int(gaze_row["x"]), int(gaze_row["y"])), 4, (0, 255, 0), -1)
+
+            temp[100:, :, :] = new_frame
         new_frame = temp
 
         # add the other information we want to display
         cv2.putText(new_frame, "Ground-truth", positions["ground_truth"], cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 0, 0), 1)
         cv2.putText(new_frame, "Prediction", positions["prediction"], cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 1)
-        cv2.putText(new_frame, "Valid lap", positions["valid_lap"], cv2.FONT_HERSHEY_DUPLEX, 0.8,
-                    (255, 255, 255) if row["valid_lap"] == 1 else (50, 50, 50), 1)
-        cv2.putText(new_frame, "Expected trajectory", positions["expected_trajectory"], cv2.FONT_HERSHEY_DUPLEX, 0.8,
-                    (255, 255, 255) if row["expected_trajectory"] == 1 else (50, 50, 50), 1)
-        cv2.putText(new_frame, "Left turn", positions["turn_left"], cv2.FONT_HERSHEY_DUPLEX, 0.8,
-                    (255, 255, 255) if row["turn_left"] == 1 else (50, 50, 50), 1)
-        cv2.putText(new_frame, "Right turn", positions["turn_right"], cv2.FONT_HERSHEY_DUPLEX, 0.8,
-                    (255, 255, 255) if row["turn_right"] == 1 else (50, 50, 50), 1)
+        if args.output_mode != "overlay_raw":
+            cv2.putText(new_frame, "Valid lap", positions["valid_lap"], cv2.FONT_HERSHEY_DUPLEX, 0.8,
+                        (255, 255, 255) if row["valid_lap"] == 1 else (50, 50, 50), 1)
+            cv2.putText(new_frame, "Expected trajectory", positions["expected_trajectory"], cv2.FONT_HERSHEY_DUPLEX, 0.8,
+                        (255, 255, 255) if row["expected_trajectory"] == 1 else (50, 50, 50), 1)
+            cv2.putText(new_frame, "Left turn", positions["turn_left"], cv2.FONT_HERSHEY_DUPLEX, 0.8,
+                        (255, 255, 255) if row["turn_left"] == 1 else (50, 50, 50), 1)
+            cv2.putText(new_frame, "Right turn", positions["turn_right"], cv2.FONT_HERSHEY_DUPLEX, 0.8,
+                        (255, 255, 255) if row["turn_right"] == 1 else (50, 50, 50), 1)
 
         # write the newly created frame to file
         video_writer.write(new_frame)
 
-        # if row["frame"] >= 500:
-        #     break
+        if row["frame"] >= 500:
+            break
 
 
 def handle_single_run(args, run_dir):
@@ -166,7 +189,7 @@ def handle_single_run(args, run_dir):
 
     # check if required files exist
     if os.path.exists(gt_video_path) and os.path.exists(df_frame_info_path):
-        handle_single_video(args, run_dir, df_frame_info_path, gt_video_path)
+        handle_single_video(args, run_dir, df_frame_info_path)
 
 
 def main(args):
@@ -204,8 +227,8 @@ if __name__ == "__main__":
                         help="The name of the track.")
     parser.add_argument("-gtn", "--ground_truth_name", type=str, default="moving_window_gt",
                         help="The name of the ground-truth video.")
-    parser.add_argument("-om", "--output_mode", type=str, default="overlay_attention_maps",
-                        choices=["overlay_maps", "overlay_all", "overlay_none"],
+    parser.add_argument("-om", "--output_mode", type=str, default="overlay_maps",
+                        choices=["overlay_maps", "overlay_all", "overlay_none", "overlay_raw"],
                         help="The path to the model checkpoint to use for computing the predictions.")
     parser.add_argument("--use_pims", action="store_true",
                         help="Whether to use PIMS (PyAV) instead of OpenCV for reading frames.")
