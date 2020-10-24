@@ -98,6 +98,10 @@ def handle_single_video(args, run_dir, frame_info_path):
 
     # loop through all frames in frame_info
     for _, row in tqdm(df_frame_info.iterrows(), total=len(df_frame_info.index)):
+        # filter frames if specified
+        if args.filter is not None and row[args.filter] != 1:
+            continue
+
         # return original frame and predict label
         frame, label, frame_original = video_dataset[row["frame"]]
         frame, label = frame.unsqueeze(0).to(device), label.unsqueeze(0).to(device) if label is not None else label
@@ -177,8 +181,8 @@ def handle_single_video(args, run_dir, frame_info_path):
         # write the newly created frame to file
         video_writer.write(new_frame)
 
-        if row["frame"] >= 500:
-            break
+        # if row["frame"] >= 500:
+        #     break
 
 
 def handle_single_run(args, run_dir):
@@ -223,6 +227,8 @@ if __name__ == "__main__":
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
     parser.add_argument("-m", "--model_path", type=str, default=None,
                         help="The path to the model checkpoint to use for computing the predictions.")
+    parser.add_argument("-f", "--filter", type=str, default=None, choices=["turn_left", "turn_right"],
+                        help="'Property' by which to filter frames (only left/right turn for now).")
     parser.add_argument("-tn", "--track_name", type=str, default="flat",
                         help="The name of the track.")
     parser.add_argument("-gtn", "--ground_truth_name", type=str, default="moving_window_gt",

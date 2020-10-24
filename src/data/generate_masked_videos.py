@@ -81,7 +81,7 @@ def handle_single_run(args, run_dir):
 
 def main(args):
     args.data_root = os.path.abspath(args.data_root)
-    args.output_mode = ["soft_mask", "hard_mask", "mean_mask"] if args.output_mode == "all" else [args.output_mode]
+    # args.output_mode = ["soft_mask", "hard_mask", "mean_mask"] if args.output_mode == "all" else [args.output_mode]
     # loop through directory structure and create plots for every run/video that has the necessary information
     # check if data_root is already a subject or run directory
     if re.search(r"/s0\d\d", args.data_root):

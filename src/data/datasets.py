@@ -105,8 +105,8 @@ class TurnOnlyFrameDatasetPIMS(TurnOnlyFrameDataset):
         full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
         if full_run_path not in self.cap_dict:
             self.cap_dict[full_run_path] = {
-                "data": PyAVReaderTimed(os.path.join(full_run_path, "screen.mp4"), cache_size=1),
-                "label": PyAVReaderTimed(os.path.join(full_run_path, f"{self.gt_name}.mp4"), cache_size=1)
+                "data": PyAVReaderIndexed(os.path.join(full_run_path, "screen.mp4")),# cache_size=1),
+                "label": PyAVReaderIndexed(os.path.join(full_run_path, f"{self.gt_name}.mp4"))#, cache_size=1)
             }
             # TODO: could probably simplify a lot by just having a "setup" for the cap_dict
             #  and a method for getting a frame (and each class implements it differently)
@@ -201,7 +201,7 @@ class DroneControlDatasetPIMS(DroneControlDataset):
     def __getitem__(self, item):
         full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
         if full_run_path not in self.cap_dict:
-            self.cap_dict[full_run_path] = PyAVReaderTimed(os.path.join(full_run_path, "screen.mp4"), cache_size=1)
+            self.cap_dict[full_run_path] = PyAVReaderIndexed(os.path.join(full_run_path, "screen.mp4"))#, cache_size=1)
 
         # loading the frame
         frame_index = self.df_index["frame"].iloc[item]
@@ -281,9 +281,9 @@ class SingleVideoDatasetPIMS(SingleVideoDataset):
 
     def __getitem__(self, item):
         if "data" not in self.cap_dict:
-            # PyAVReaderTimed(os.path.join(full_run_path, "screen.mp4"), cache_size=1)
-            self.cap_dict["data"] = PyAVReaderTimed(os.path.join(self.run_dir, "screen.mp4"), cache_size=1)
-            self.cap_dict["label"] = PyAVReaderTimed(os.path.join(self.run_dir, f"{self.gt_name}.mp4"), cache_size=1)
+            # PyAVReaderIndexed(os.path.join(full_run_path, "screen.mp4"), cache_size=1)
+            self.cap_dict["data"] = PyAVReaderIndexed(os.path.join(self.run_dir, "screen.mp4"))#, cache_size=1)
+            self.cap_dict["label"] = PyAVReaderIndexed(os.path.join(self.run_dir, f"{self.gt_name}.mp4"))#, cache_size=1)
 
         frame_index = self.df_frame_info["frame"].iloc[item]
         frame = self.cap_dict["data"][frame_index]
