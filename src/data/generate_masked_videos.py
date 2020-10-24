@@ -4,6 +4,7 @@ import numpy as np
 import cv2
 
 from tqdm import tqdm
+from src.data.utils import iterate_directories
 
 
 def handle_single_video(args, run_dir, gt_video_path):
@@ -69,37 +70,17 @@ def handle_single_video(args, run_dir, gt_video_path):
         mean_video_writer.release()
 
 
-def handle_single_run(args, run_dir):
-    # need screen_frame_info.csv for information about valid lap etc.
-    # need ground-truth to be there as well
-    gt_video_path = os.path.join(run_dir, f"{args.ground_truth_name}.mp4")
-
-    # check if required files exist
-    if os.path.exists(gt_video_path):
-        handle_single_video(args, run_dir, gt_video_path)
-
-
 def main(args):
     args.data_root = os.path.abspath(args.data_root)
     # args.output_mode = ["soft_mask", "hard_mask", "mean_mask"] if args.output_mode == "all" else [args.output_mode]
-    # loop through directory structure and create plots for every run/video that has the necessary information
-    # check if data_root is already a subject or run directory
-    if re.search(r"/s0\d\d", args.data_root):
-        if re.search(r"/\d\d_", args.data_root):
-            handle_single_run(args, args.data_root)
-        else:
-            for run in sorted(os.listdir(args.data_root)):
-                run_dir = os.path.join(args.data_root, run)
-                if os.path.isdir(run_dir) and args.track_name in run_dir:
-                    handle_single_run(args, run_dir)
-    else:
-        for subject in sorted(os.listdir(args.data_root)):
-            subject_dir = os.path.join(args.data_root, subject)
-            if os.path.isdir(subject_dir):
-                for run in sorted(os.listdir(subject_dir)):
-                    run_dir = os.path.join(subject_dir, run)
-                    if os.path.isdir(run_dir) and args.track_name in run_dir:
-                        handle_single_run(args, run_dir)
+
+    for run_dir in iterate_directories(args.data_root):
+        # need ground-truth to be there
+        gt_video_path = os.path.join(run_dir, f"{args.ground_truth_name}.mp4")
+
+        # check if required file exists
+        if os.path.exists(gt_video_path):
+            handle_single_video(args, run_dir, gt_video_path)
 
 
 if __name__ == "__main__":
