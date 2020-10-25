@@ -275,7 +275,7 @@ if __name__ == "__main__":
                         help="Weight decay (only for Adam optimiser for now).")
 
     # arguments related to logging information
-    parser.add_argument("-lg", "--log_root", type=str, default=os.environ["GAZESIM_LOG"],
+    parser.add_argument("-lg", "--log_root", type=str, default=os.getenv("GAZESIM_LOG"),
                         help="Root directory where log folders for each run should be created.")
     parser.add_argument("-if", "--image_frequency", type=int, default=50,
                         help="Frequency at which to log ground-truth and predicted attention as images (in batches).")

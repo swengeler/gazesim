@@ -99,20 +99,17 @@ class ResNet18Regressor(nn.Module):
 
         # pooling layer, using the same as ResNet for now
         # self.pooling = nn.AdaptiveAvgPool2d((1, 1))
+        self.pooling = nn.AdaptiveMaxPool2d((1, 1))
 
         # defining the upscaling layers to get out the original image size again
-        # self.regressor = nn.Sequential(
-        #     nn.Linear(256, 4),
-        #     ControlActivationLayer()
-        # )
         self.regressor = nn.Sequential(
-            nn.Linear(1900, 4),
+            nn.Linear(256, 4),
             ControlActivationLayer()
         )
 
     def forward(self, x):
         x = self.features(x)
-        # x = self.pooling(x)
+        x = self.pooling(x)
         x = x.reshape(x.size(0), -1)
         x = self.regressor(x)
         return x
@@ -132,20 +129,17 @@ class ResNet18SimpleRegressor(nn.Module):
 
         # pooling layer, using the same as ResNet for now
         # self.pooling = nn.AdaptiveAvgPool2d((1, 1))
+        self.pooling = nn.AdaptiveMaxPool2d((1, 1))
 
         # defining the upscaling layers to get out the original image size again
-        # self.regressor = nn.Sequential(
-        #     nn.Linear(128, 4),
-        #     ControlActivationLayer()
-        # )
         self.regressor = nn.Sequential(
-            nn.Linear(1900, 4),
+            nn.Linear(128, 4),
             ControlActivationLayer()
         )
 
     def forward(self, x):
         x = self.features(x)
-        # x = self.pooling(x)
+        x = self.pooling(x)
         x = x.reshape(x.size(0), -1)
         x = self.regressor(x)
         return x
@@ -163,7 +157,7 @@ if __name__ == "__main__":
 
     tensor = torch.zeros((1, 3, 300, 400)).to(device)
 
-    net = ResNet18SimpleRegressor().to(device)
+    net = ResNet18Regressor().to(device)
     out = net(tensor)
     print(out.shape)
 
