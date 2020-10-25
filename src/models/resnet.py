@@ -98,17 +98,21 @@ class ResNet18Regressor(nn.Module):
         # shape will be [-1, 256, 19, 25] after this with module_transfer_depth 7 and input height 300
 
         # pooling layer, using the same as ResNet for now
-        self.pooling = nn.AdaptiveAvgPool2d((1, 1))
+        # self.pooling = nn.AdaptiveAvgPool2d((1, 1))
 
         # defining the upscaling layers to get out the original image size again
+        # self.regressor = nn.Sequential(
+        #     nn.Linear(256, 4),
+        #     ControlActivationLayer()
+        # )
         self.regressor = nn.Sequential(
-            nn.Linear(256, 4),
+            nn.Linear(1900, 4),
             ControlActivationLayer()
         )
 
     def forward(self, x):
         x = self.features(x)
-        x = self.pooling(x)
+        # x = self.pooling(x)
         x = x.reshape(x.size(0), -1)
         x = self.regressor(x)
         return x
@@ -127,17 +131,21 @@ class ResNet18SimpleRegressor(nn.Module):
         # shape will be [-1, 128, 38, 50] after this with module_transfer_depth 6 and input height 300
 
         # pooling layer, using the same as ResNet for now
-        self.pooling = nn.AdaptiveAvgPool2d((1, 1))
+        # self.pooling = nn.AdaptiveAvgPool2d((1, 1))
 
         # defining the upscaling layers to get out the original image size again
+        # self.regressor = nn.Sequential(
+        #     nn.Linear(128, 4),
+        #     ControlActivationLayer()
+        # )
         self.regressor = nn.Sequential(
-            nn.Linear(128, 4),
+            nn.Linear(1900, 4),
             ControlActivationLayer()
         )
 
     def forward(self, x):
         x = self.features(x)
-        x = self.pooling(x)
+        # x = self.pooling(x)
         x = x.reshape(x.size(0), -1)
         x = self.regressor(x)
         return x
