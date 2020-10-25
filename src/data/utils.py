@@ -37,6 +37,9 @@ def iterate_directories(data_root, track_names=None):
 
 
 def parse_run_info(run_dir):
+    if run_dir[-1] == "/":
+        run_dir = run_dir[:-1]
+
     # return the subject number, run number and track name
     result = re.search(r"/s0\d\d", run_dir)
     subject_number = None if result is None else int(result[0][2:])
@@ -44,8 +47,8 @@ def parse_run_info(run_dir):
     result = re.search(r"/s0\d\d/\d\d_", run_dir)
     run_number = None if result is None else int(result[0][6:8])
 
-    result = re.search(r"/s0\d\d/\d\d_.+/", run_dir)
-    track_name = None if result is None else int(result[0][9:-1])
+    result = re.search(r"/s0\d\d/\d\d_.+", run_dir)
+    track_name = None if result is None else result[0][9:]
 
     info = {
         "subject": subject_number,

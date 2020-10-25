@@ -107,16 +107,17 @@ def add_lap_info(data, df_screen_ts, df_lap_info, df_trajectory):
 
     for _, row in df_lap_info.iterrows():
         ts_index = df_screen_ts["ts"].between(row["ts_start"], row["ts_end"])
-        df_temp["valid_lap"].iloc[ts_index] = row["is_valid"]
-        df_temp["lap_index"].iloc[ts_index] = row["lap"]
+        df_temp.loc[ts_index, "valid_lap"] = row["is_valid"]
+        df_temp.loc[ts_index, "lap_index"] = row["lap"]
 
-    for _, row in df_trajectory.iterrows():
-        lap_start = df_lap_info["ts_start"].loc[df_lap_info["lap"] == row["lap"]].values[0]
-        lap_end = df_lap_info["ts_end"].loc[df_lap_info["lap"] == row["lap"]].values[0]
-        if row["expected_trajectory"] == 1:
-            df_temp["expected_trajectory"].iloc[df_screen_ts["ts"].between(lap_start, lap_end)] = 1
-        else:
-            df_temp["expected_trajectory"].iloc[df_screen_ts["ts"].between(lap_start, lap_end)] = 0
+    if df_trajectory is not None:
+        for _, row in df_trajectory.iterrows():
+            lap_start = df_lap_info["ts_start"].loc[df_lap_info["lap"] == row["lap"]].values[0]
+            lap_end = df_lap_info["ts_end"].loc[df_lap_info["lap"] == row["lap"]].values[0]
+            if row["expected_trajectory"] == 1:
+                df_temp.loc[df_screen_ts["ts"].between(lap_start, lap_end), "expected_trajectory"] = 1
+            else:
+                df_temp.loc[df_screen_ts["ts"].between(lap_start, lap_end), "expected_trajectory"] = 0
 
     data["valid_lap"].extend(df_temp["valid_lap"].values)
     data["lap_index"].extend(df_temp["lap_index"].values)
@@ -134,7 +135,7 @@ def add_turn_info(data, df_screen_ts, df_lap_info):
     # TODO: for this to work properly, either need to implement some fancy stuff to
     #  "wrap around" for the right half or redefine laps to start and end in the middle
     gates_list = [(3, 4, 5), (8, 9, 10), (2, 3, 4, 5, 6), (7, 8, 9, 10, 1)][:2]
-    label_list = ["left_turn", "right_right", "left_half", "right_half"][:2]
+    label_list = ["left_turn", "right_turn", "left_half", "right_half"][:2]
     for _, row in df_lap_info.iterrows():
         gate_id = [int(i) for i in row["gate_id"][1:-1].strip().split()]
         gate_ts = [float(i) for i in row["gate_timestamps"][1:-1].strip().split()]
@@ -148,12 +149,12 @@ def add_turn_info(data, df_screen_ts, df_lap_info):
                 if turn_gates[1] <= gid <= turn_gates[2]:
                     ts_high = gts
             if ts_low is not None and ts_high is not None:
-                df_temp[turn_label].iloc[df_screen_ts["ts"].between(ts_low, ts_high)] = 1
+                df_temp.loc[df_screen_ts["ts"].between(ts_low, ts_high), turn_label] = 1
 
     data["left_turn"].extend(df_temp["left_turn"].values)
     data["right_turn"].extend(df_temp["right_turn"].values)
-    data["right_turn"].extend(df_temp["left_half"].values)
-    data["right_turn"].extend(df_temp["right_half"].values)
+    data["left_half"].extend(df_temp["left_half"].values)
+    data["right_half"].extend(df_temp["right_half"].values)
     return data
 
 
@@ -219,6 +220,12 @@ def main(args):
         add_turn_info(data, df_screen_ts, df_lap_info)
 
         # TODO: probably add info about e.g. upward/downward trajectory for "wave" track
+
+    for key in data:
+        print("{}: {}".format(key, len(data[key])))
+
+    df_data = pd.DataFrame(data)
+    df_data.to_csv(os.path.join(args.data_root, "index.csv"), index=False)
 
 
 if __name__ == "__main__":
