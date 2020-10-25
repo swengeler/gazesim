@@ -98,14 +98,12 @@ class ResNet18Regressor(nn.Module):
         # shape will be [-1, 256, 19, 25] after this with module_transfer_depth 7 and input height 300
 
         # pooling layer, using the same as ResNet for now
-        # self.pooling = nn.AdaptiveAvgPool2d((1, 1))
-        self.not_sure = nn.Conv2d(256, 256, (3, 3), stride=2)
-        self.pooling = nn.MaxPool2d((3, 3), stride=2)
+        self.pooling = nn.AdaptiveAvgPool2d((1, 1))
         # self.pooling = nn.AdaptiveMaxPool2d((1, 1))
 
         # defining the upscaling layers to get out the original image size again
         self.regressor = nn.Sequential(
-            nn.Linear(5120, 4),
+            nn.Linear(256, 4),
             ControlActivationLayer()
         )
 

@@ -7,6 +7,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 from pims import PyAVReaderIndexed, PyAVReaderTimed
+from src.data.utils import get_indexed_reader
 
 # TODO: this will definitely have to be changed to something more elegant
 # TODO: would probably also be good to put this in some config file together with train, val, test indices etc.
@@ -105,8 +106,10 @@ class TurnOnlyFrameDatasetPIMS(TurnOnlyFrameDataset):
         full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
         if full_run_path not in self.cap_dict:
             self.cap_dict[full_run_path] = {
-                "data": PyAVReaderIndexed(os.path.join(full_run_path, "screen.mp4")),# cache_size=1),
-                "label": PyAVReaderIndexed(os.path.join(full_run_path, f"{self.gt_name}.mp4"))#, cache_size=1)
+                # "data": PyAVReaderIndexed(os.path.join(full_run_path, "screen.mp4")),# cache_size=1),
+                # "label": PyAVReaderIndexed(os.path.join(full_run_path, f"{self.gt_name}.mp4"))#, cache_size=1)
+                "data": get_indexed_reader(os.path.join(full_run_path, "screen.mp4")),
+                "label": get_indexed_reader(os.path.join(full_run_path, f"{self.gt_name}.mp4"))
             }
             # TODO: could probably simplify a lot by just having a "setup" for the cap_dict
             #  and a method for getting a frame (and each class implements it differently)
@@ -201,7 +204,8 @@ class DroneControlDatasetPIMS(DroneControlDataset):
     def __getitem__(self, item):
         full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
         if full_run_path not in self.cap_dict:
-            self.cap_dict[full_run_path] = PyAVReaderIndexed(os.path.join(full_run_path, "screen.mp4"))#, cache_size=1)
+            # self.cap_dict[full_run_path] = PyAVReaderIndexed(os.path.join(full_run_path, "screen.mp4"))#, cache_size=1)
+            self.cap_dict[full_run_path] = get_indexed_reader(os.path.join(full_run_path, "screen.mp4"))
 
         # loading the frame
         frame_index = self.df_index["frame"].iloc[item]
@@ -282,8 +286,10 @@ class SingleVideoDatasetPIMS(SingleVideoDataset):
     def __getitem__(self, item):
         if "data" not in self.cap_dict:
             # PyAVReaderIndexed(os.path.join(full_run_path, "screen.mp4"), cache_size=1)
-            self.cap_dict["data"] = PyAVReaderIndexed(os.path.join(self.run_dir, "screen.mp4"))#, cache_size=1)
-            self.cap_dict["label"] = PyAVReaderIndexed(os.path.join(self.run_dir, f"{self.gt_name}.mp4"))#, cache_size=1)
+            # self.cap_dict["data"] = PyAVReaderIndexed(os.path.join(self.run_dir, "screen.mp4"))#, cache_size=1)
+            # self.cap_dict["label"] = PyAVReaderIndexed(os.path.join(self.run_dir, f"{self.gt_name}.mp4"))#, cache_size=1)
+            self.cap_dict["data"] = get_indexed_reader(os.path.join(self.run_dir, "screen.mp4"))
+            self.cap_dict["label"] = get_indexed_reader(os.path.join(self.run_dir, f"{self.gt_name}.mp4"))
 
         frame_index = self.df_frame_info["frame"].iloc[item]
         frame = self.cap_dict["data"][frame_index]
@@ -364,9 +370,54 @@ def get_dataset(data_root, split="train", data_type="turn_left", resize_height=1
 
 
 if __name__ == "__main__":
+    import numpy as np
+    from time import time
+    from tqdm import tqdm
+
     # test that everything with the dataset works as intended
-    ds = get_dataset(os.getenv("GAZESIM_ROOT"), data_type="turn_left_drone_control_gt")
+    ds = get_dataset(os.getenv("GAZESIM_ROOT"), data_type="turn_left_drone_control_gt", use_pims=True)
     print("Dataset length:", len(ds))
-    test_data, test_label = ds[0]
+    test_data, test_label = ds[1000]
     print("test_data:", type(test_data), test_data.shape, test_data.min(), test_data.max())
     print("test_label:", type(test_label), test_label.shape, test_label.max(), test_label.sum())
+
+    exit(0)
+
+    # for i in tqdm(range(len(ds))):
+    #     hmmmm = ds[i]
+
+    keys = list(ds.cap_dict.keys())
+
+    lengths_list = []
+    ts_list = []
+    pims_list = []
+    cv_list = []
+    for k in tqdm(keys):
+        tic_toc = ds.cap_dict[k].toc
+        print(tic_toc)
+        # print(tic_toc.keys())
+        print(len(tic_toc["lengths"]))
+        print(len(tic_toc["ts"]))
+
+        lengths_list.append((np.array(tic_toc["lengths"]) != 1).sum())
+
+        ts = np.array(tic_toc["ts"])
+        test = ts[1:] - ts[:-1]
+        ts_list.append((test != 256).sum())
+
+        start = time()
+        test_timed = PyAVReaderTimed(os.path.join(k, "screen.mp4"), cache_size=1)
+        test_len = len(test_timed)
+        end = time()
+        pims_list.append(end - start)
+
+        start = time()
+        test_timed = cv2.VideoCapture(os.path.join(k, "screen.mp4"))
+        test_len = int(test_timed.get(7))
+        end = time()
+        cv_list.append(end - start)
+
+    print(np.sum(lengths_list))
+    print(np.sum(ts_list))
+    print(np.mean(pims_list))
+    print(np.mean(cv_list))

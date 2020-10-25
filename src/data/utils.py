@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import cv2
 
 from tqdm import tqdm
+from pims import PyAVReaderIndexed, PyAVReaderTimed
 from scipy.stats import multivariate_normal as mvn
 
 ########################################
@@ -57,6 +58,19 @@ def parse_run_info(run_dir):
     }
 
     return info
+
+
+def get_indexed_reader(video_path):
+    # timed_reader = PyAVReaderTimed(video_path, cache_size=1)
+    # num_frames = len(timed_reader)
+    cv2_reader = cv2.VideoCapture(video_path)
+    num_frames = int(cv2_reader.get(7))
+
+    toc_lengths = [1] * num_frames
+    toc_ts = [i for i in range(0, num_frames * 256, 256)]
+    toc = {"lengths": toc_lengths, "ts": toc_ts}
+
+    return PyAVReaderIndexed(video_path, toc=toc)
 
 
 #################################
