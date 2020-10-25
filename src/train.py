@@ -69,6 +69,7 @@ def train(args):
         data_root=args.data_root,
         split="train",
         data_type=args.data_type,
+        video_name=args.video_name,
         resize_height=args.resize_height,
         use_pims=args.use_pims
     )
@@ -78,6 +79,7 @@ def train(args):
         data_root=args.data_root,
         split="val",
         data_type=args.data_type,
+        video_name=args.video_name,
         resize_height=args.resize_height,
         use_pims=args.use_pims
     )
@@ -243,6 +245,10 @@ if __name__ == "__main__":
                         choices=["turn_left", "turn_right", "turn_both", "turn_left_drone_control_gt",
                                  "turn_right_drone_control_gt", "turn_both_drone_control_gt",
                                  "soft_mask", "hard_mask", "mean_mask"],
+                        help="The type of turn to train on (left or right).")
+    parser.add_argument("-vn", "--video_name", type=str, default="screen",
+                        choices=["screen", "hard_mask_moving_window_gt",
+                                 "mean_mask_moving_window_gt", "soft_mask_moving_window_gt"],
                         help="The type of turn to train on (left or right).")
     parser.add_argument("-rh", "--resize_height", type=int, default=150,
                         help="Height that input images and the ground-truth are rescaled to (with width being "

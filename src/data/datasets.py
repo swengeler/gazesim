@@ -9,12 +9,25 @@ from torchvision import transforms
 from pims import PyAVReaderIndexed, PyAVReaderTimed
 from src.data.utils import get_indexed_reader
 
-# TODO: this will definitely have to be changed to something more elegant
-# TODO: would probably also be good to put this in some config file together with train, val, test indices etc.
-CHANNEL_MEAN_LEFT_TURN = [0.23293883, 0.21116218, 0.21415611]
-CHANNEL_MEAN_RIGHT_TURN = [0.23851419, 0.21621058, 0.21929578]
-CHANNEL_STD_LEFT_TURN = [0.02027875, 0.01657429, 0.02141269]
-CHANNEL_STD_RIGHT_TURN = [0.02017207, 0.01647169, 0.02108472]
+
+STATISTICS = {
+    "screen": {
+        "turn_left": {"mean": [0.23293883, 0.21116218, 0.21415611], "std": [0.02027875, 0.01657429, 0.02141269]},
+        "turn_right": {"mean": [0.23851419, 0.21621058, 0.21929578], "std": [0.02017207, 0.01647169, 0.02108472]}
+    },
+    "hard_mask_moving_window_gt": {
+        "turn_left": {"mean": [0.00197208, 0.00194627, 0.00206955], "std": [0.00038268, 0.00034424, 0.000489]},
+        "turn_right": {"mean": [0.00199134, 0.00198215, 0.00214822], "std": [0.00038682, 0.00035, 0.0005171]}
+    },
+    "mean_mask_moving_window_gt": {
+        "turn_left": {"mean": [0.01235463, 0.01220624, 0.01134171], "std": [0.00174027, 0.00150813, 0.0019455]},
+        "turn_right": {"mean": [0.01265004, 0.01247167, 0.01154284], "std": [0.0017945, 0.00154555, 0.00193905]}
+    },
+    "soft_mask_moving_window_gt": {
+        "turn_left": {"mean": [0.04040431, 0.04105297, 0.03419323], "std": [0.00104593, 0.00093455, 0.00121713]},
+        "turn_right": {"mean": [0.0415835, 0.04213016, 0.03518509], "std": [0.00104145, 0.00093271, 0.00123364]}
+    }
+}
 
 
 class MakeValidDistribution(object):
@@ -137,6 +150,7 @@ class DroneControlDataset(Dataset):
             data_root,
             split="train",
             prefix="turn_left",
+            video_name="screen",
             gt_name="moving_window_gt",
             data_transform=None,
             label_transform=None,
@@ -152,6 +166,7 @@ class DroneControlDataset(Dataset):
         #  might want to change it back to that
 
         self.data_root = data_root
+        self.video_name = video_name
         self.gt_name = gt_name
         self.data_transform = data_transform
         self.label_transform = label_transform
@@ -179,7 +194,7 @@ class DroneControlDataset(Dataset):
     def __getitem__(self, item):
         full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
         if full_run_path not in self.cap_dict:
-            self.cap_dict[full_run_path] = cv2.VideoCapture(os.path.join(full_run_path, "screen.mp4"))
+            self.cap_dict[full_run_path] = cv2.VideoCapture(os.path.join(full_run_path, f"{self.video_name}.mp4"))
 
         # loading the frame
         frame_index = self.df_index["frame"].iloc[item]
@@ -205,7 +220,7 @@ class DroneControlDatasetPIMS(DroneControlDataset):
         full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
         if full_run_path not in self.cap_dict:
             # self.cap_dict[full_run_path] = PyAVReaderIndexed(os.path.join(full_run_path, "screen.mp4"))#, cache_size=1)
-            self.cap_dict[full_run_path] = get_indexed_reader(os.path.join(full_run_path, "screen.mp4"))
+            self.cap_dict[full_run_path] = get_indexed_reader(os.path.join(full_run_path, f"{self.video_name}.mp4"))
 
         # loading the frame
         frame_index = self.df_index["frame"].iloc[item]
@@ -309,11 +324,20 @@ class SingleVideoDatasetPIMS(SingleVideoDataset):
         return frame, label
 
 
-def get_dataset(data_root, split="train", data_type="turn_left", resize_height=150, use_pims=False, sub_index=None):
+def get_dataset(data_root, split="train", data_type="turn_left", video_name="screen", resize_height=150, use_pims=False, sub_index=None):
     dataset = None
 
-    mean = CHANNEL_MEAN_LEFT_TURN if "turn_left" in data_type else CHANNEL_MEAN_RIGHT_TURN
-    std = CHANNEL_STD_LEFT_TURN if "turn_left" in data_type else CHANNEL_STD_RIGHT_TURN
+    # TODO: this is super messy, really needs to be changed when datasets are refactored
+    turn_type = None
+    if data_type in ["turn_left", "turn_right"]:
+        turn_type = data_type
+    elif data_type == "turn_left_drone_control_gt":
+        turn_type = "turn_left"
+    elif data_type == "turn_right_drone_control_gt":
+        turn_type = "turn_right"
+
+    mean = STATISTICS[video_name][turn_type]["mean"]
+    std = STATISTICS[video_name][turn_type]["std"]
 
     data_transform = transforms.Compose([
         transforms.ToPILImage(),
@@ -344,6 +368,7 @@ def get_dataset(data_root, split="train", data_type="turn_left", resize_height=1
             data_root=data_root,
             split=split,
             prefix=data_type,
+            video_name=video_name,
             gt_name="drone_control_gt",
             data_transform=data_transform,
             sub_index=sub_index
@@ -363,8 +388,6 @@ def get_dataset(data_root, split="train", data_type="turn_left", resize_height=1
             label_transform=label_transform,
             sub_index=sub_index
         )
-
-    # TODO: add dataset using all available "valid" frames
 
     return dataset
 
