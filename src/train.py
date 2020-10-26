@@ -11,7 +11,7 @@ from datetime import datetime
 from tqdm import tqdm
 from src.data.datasets import get_dataset
 from src.models.vgg import VGG16BaseModel
-from src.models.resnet import ResNet18BaseModel, ResNet18BaseModelSimple, ResNet18Regressor, ResNet18SimpleRegressor
+from src.models.resnet import ResNet18BaseModel, ResNet18BaseModelSimple, ResNet18Regressor, ResNet18SimpleRegressor, ResNet18DualBranchRegressor
 from src.models.utils import image_softmax, image_log_softmax, image_max
 
 
@@ -26,6 +26,8 @@ def resolve_model_class(name):
         return ResNet18Regressor
     elif name == "resnet18_simple_regressor":
         return ResNet18SimpleRegressor
+    elif name == "resnet18_dual":
+        return ResNet18DualBranchRegressor
     return VGG16BaseModel
 
 
@@ -116,7 +118,11 @@ def train(args):
 
         for batch_index, (batch, labels) in tqdm(enumerate(training_generator), total=len(training_generator)):
             # transfer to GPU
-            batch, labels = batch.to(device), labels.to(device)
+            if isinstance(batch, list):
+                batch = [b.to(device) for b in batch]
+                labels = labels.to(device)
+            else:
+                batch, labels = batch.to(device), labels.to(device)
 
             # forward pass, loss computation and backward pass
             optimiser.zero_grad()
@@ -134,7 +140,10 @@ def train(args):
             running_loss += current_loss
 
             # log to tensorboard
-            global_step += batch.shape[0]
+            if isinstance(batch, list):
+                global_step += batch[0].shape[0]
+            else:
+                global_step += batch.shape[0]
             tb_writer.add_scalar("loss/train", current_loss, global_step)
 
             # logging ground-truth and predicted images every X batches
@@ -156,7 +165,11 @@ def train(args):
                         model.eval()
                         for val_batch_index, (val_batch, val_labels) in tqdm(enumerate(validation_generator), disable=True):
                             # transfer to GPU
-                            val_batch, val_labels = val_batch.to(device), val_labels.to(device)
+                            if isinstance(batch, list):
+                                val_batch = [b.to(device) for b in val_batch]
+                                val_labels = val_labels.to(device)
+                            else:
+                                val_batch, val_labels = val_batch.to(device), val_labels.to(device)
 
                             # forward pass and recording the losses
                             predicted_labels = model(val_batch)
@@ -192,7 +205,11 @@ def train(args):
                         for val_batch_index, (val_batch, val_labels) in tqdm(enumerate(validation_generator),
                                                                              disable=True):
                             # transfer to GPU
-                            val_batch, val_labels = val_batch.to(device), val_labels.to(device)
+                            if isinstance(batch, list):
+                                val_batch = [b.to(device) for b in val_batch]
+                                val_labels = val_labels.to(device)
+                            else:
+                                val_batch, val_labels = val_batch.to(device), val_labels.to(device)
 
                             # forward pass and recording the loss
                             predicted_labels = model(val_batch)
@@ -246,7 +263,7 @@ if __name__ == "__main__":
                                  "turn_right_drone_control_gt", "turn_both_drone_control_gt",
                                  "soft_mask", "hard_mask", "mean_mask"],
                         help="The type of turn to train on (left or right).")
-    parser.add_argument("-vn", "--video_name", type=str, default="screen",
+    parser.add_argument("-vn", "--video_name", type=str, default="screen", nargs="+",
                         choices=["screen", "hard_mask_moving_window_gt",
                                  "mean_mask_moving_window_gt", "soft_mask_moving_window_gt"],
                         help="The type of turn to train on (left or right).")
@@ -259,7 +276,7 @@ if __name__ == "__main__":
     # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str, default="vgg16",
                         choices=["vgg16", "resnet18", "resnet18_simple", "resnet18_regressor",
-                                 "resnet18_simple_regressor"],
+                                 "resnet18_simple_regressor", "resnet18_dual"],
                         help="The name of the model to use (only VGG16 and ResNet18 available currently).")
     parser.add_argument("-np", "--not_pretrained", action="store_true",
                         help="Disable using pretrained weights for the encoder where available.")
@@ -293,6 +310,8 @@ if __name__ == "__main__":
 
     # parse the arguments
     arguments = parser.parse_args()
+    if len(arguments.video_name) == 1:
+        arguments.video_name = arguments.video_name[0]
 
     # train
     train(arguments)

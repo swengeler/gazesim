@@ -239,6 +239,76 @@ class DroneControlDatasetPIMS(DroneControlDataset):
         return frame, label
 
 
+class DualBranchDroneControlDatasetPIMS(Dataset):
+
+    def __init__(
+            self,
+            data_root,
+            split="train",
+            prefix="turn_left",
+            video_names=("screen", "hard_mask_moving_window_gt"),
+            gt_name="moving_window_gt",
+            data_transforms=None,
+            label_transform=None,
+            sub_index=None
+    ):
+        super().__init__()
+
+        assert len(video_names) == 2, "Need exactly two input video names for dual-branch network/dataset."
+        assert data_transforms is None or len(data_transforms) == len(video_names), \
+            "Number of transforms must match number of input videos."
+
+        self.data_root = data_root
+        self.video_names = video_names
+        self.gt_name = gt_name
+        self.data_transforms = data_transforms
+        self.label_transform = label_transform
+
+        if prefix == "turn_both":
+            df_left = pd.read_csv(os.path.join(self.data_root, f"turn_left_drone_control_gt_{split}.csv"))
+            df_right = pd.read_csv(os.path.join(self.data_root, f"turn_right_drone_control_gt_{split}.csv"))
+            self.df_index = pd.concat([df_left, df_right], ignore_index=True)
+        else:
+            self.df_index = pd.read_csv(os.path.join(self.data_root, f"{prefix}_{split}.csv"))
+
+        if sub_index:
+            # assume that sub_index is an iterable with two entries (start and end index)
+            self.df_index = self.df_index.iloc[sub_index[0]:sub_index[1]]
+            self.df_index = self.df_index.reset_index()
+
+        self.cap_dict = {}
+        self.return_original = False
+
+    def __len__(self):
+        return len(self.df_index.index)
+
+    def __getitem__(self, item):
+        full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[item])
+        if full_run_path not in self.cap_dict:
+            self.cap_dict[full_run_path] = {}
+            for vn in self.video_names:
+                self.cap_dict[full_run_path][vn] = get_indexed_reader(os.path.join(full_run_path, f"{vn}.mp4"))
+
+        # loading the frames
+        frame_index = self.df_index["frame"].iloc[item]
+        frames = []
+        for vn in self.video_names:
+            frame = self.cap_dict[full_run_path][vn][frame_index]
+            frames.append(frame)
+
+        frames_original = [f.copy() for f in frames]
+        if self.data_transforms:
+            frames = [self.data_transforms[f_idx](f) for f_idx, f in enumerate(frames)]
+
+        # selecting the label
+        label = self.df_index[["Throttle", "Roll", "Pitch", "Yaw"]].iloc[item].values
+        label = torch.from_numpy(label).float()
+
+        if self.return_original:
+            return frames, label, frames_original, label
+        return frames, label
+
+
 class SingleVideoDataset(Dataset):
 
     def __init__(
@@ -336,15 +406,23 @@ def get_dataset(data_root, split="train", data_type="turn_left", video_name="scr
     elif data_type == "turn_right_drone_control_gt":
         turn_type = "turn_right"
 
-    mean = STATISTICS[video_name][turn_type]["mean"]
-    std = STATISTICS[video_name][turn_type]["std"]
+    if isinstance(video_name, str):
+        mean = STATISTICS[video_name][turn_type]["mean"]
+        std = STATISTICS[video_name][turn_type]["std"]
 
-    data_transform = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.Resize(resize_height),
-        transforms.ToTensor(),
-        transforms.Normalize(mean, std)
-    ])
+        data_transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize(resize_height),
+            transforms.ToTensor(),
+            transforms.Normalize(mean, std)
+        ])
+    else:
+        data_transform = [transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize(resize_height),
+            transforms.ToTensor(),
+            transforms.Normalize(STATISTICS[vn][turn_type]["mean"], STATISTICS[vn][turn_type]["std"])
+        ]) for vn in video_name]
 
     if data_type in ["turn_left", "turn_right", "turn_both"]:
         label_transform = transforms.Compose([
@@ -363,16 +441,27 @@ def get_dataset(data_root, split="train", data_type="turn_left", video_name="scr
             sub_index=sub_index
         )
     elif data_type in ["turn_left_drone_control_gt", "turn_right_drone_control_gt", "turn_both_drone_control_gt"]:
-        dataset_class = DroneControlDatasetPIMS if use_pims else DroneControlDataset
-        dataset = dataset_class(
-            data_root=data_root,
-            split=split,
-            prefix=data_type,
-            video_name=video_name,
-            gt_name="drone_control_gt",
-            data_transform=data_transform,
-            sub_index=sub_index
-        )
+        if isinstance(video_name, str):
+            dataset_class = DroneControlDatasetPIMS if use_pims else DroneControlDataset
+            dataset = dataset_class(
+                data_root=data_root,
+                split=split,
+                prefix=data_type,
+                video_name=video_name,
+                gt_name="drone_control_gt",
+                data_transform=data_transform,
+                sub_index=sub_index
+            )
+        else:
+            dataset = DualBranchDroneControlDatasetPIMS(
+                data_root=data_root,
+                split=split,
+                prefix=data_type,
+                video_names=video_name,
+                gt_name="drone_control_gt",
+                data_transforms=data_transform,
+                sub_index=sub_index
+            )
     elif data_type == "single_video":
         label_transform = transforms.Compose([
             transforms.ToPILImage(),
@@ -398,11 +487,12 @@ if __name__ == "__main__":
     from tqdm import tqdm
 
     # test that everything with the dataset works as intended
-    ds = get_dataset(os.getenv("GAZESIM_ROOT"), data_type="turn_left_drone_control_gt", use_pims=True)
+    ds = get_dataset(os.getenv("GAZESIM_ROOT"), data_type="turn_left_drone_control_gt",
+                     video_name=("screen", "hard_mask_moving_window_gt"), use_pims=True)
     print("Dataset length:", len(ds))
-    test_data, test_label = ds[1000]
-    print("test_data:", type(test_data), test_data.shape, test_data.min(), test_data.max())
-    print("test_label:", type(test_label), test_label.shape, test_label.max(), test_label.sum())
+    test_data, test_label = ds[0]
+    # print("test_data:", type(test_data), test_data.shape, test_data.min(), test_data.max())
+    # print("test_label:", type(test_label), test_label.shape, test_label.max(), test_label.sum())
 
     exit(0)
 

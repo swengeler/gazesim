@@ -147,6 +147,49 @@ class ResNet18SimpleRegressor(nn.Module):
         x = self.regressor(x)
         return x
 
+
+class ResNet18DualBranchRegressor(nn.Module):
+
+    def __init__(self, module_transfer_depth=6, transfer_weights=True):
+        super().__init__()
+
+        # get the layers form ResNet
+        resnet18 = models.resnet18(transfer_weights)
+        modules = list(resnet18.children())[:module_transfer_depth]
+
+        # creating the feature extractors/two branches
+        self.features_0 = nn.Sequential(*modules)
+        self.features_1 = nn.Sequential(*modules)
+
+        # pooling layer, using the same as ResNet for now
+        # should be able to apply this to features from both branches
+        self.pooling = nn.AdaptiveAvgPool2d((1, 1))
+
+        # regressor with double the input size as simple ResNet regressor
+        self.regressor = nn.Sequential(
+            nn.Linear(256, 4),
+            ControlActivationLayer()
+        )
+
+    def forward(self, x):
+        # pass both images through the branches
+        x_0 = self.features_0(x[0])
+        x_1 = self.features_0(x[1])
+
+        # pooling
+        x_0 = self.pooling(x_0)
+        x_1 = self.pooling(x_1)
+
+        # flatten the pooled features
+        x_0 = x_0.reshape(x_0.size(0), -1)
+        x_1 = x_1.reshape(x_1.size(0), -1)
+
+        # concatenate the features and pass them through the regressor
+        x = torch.cat((x_0, x_1), 1)
+        x = self.regressor(x)
+
+        return x
+
 # TODO: create some more architectures to try out for predicting control inputs
 # - only RGB input (flatten after "feature extractor") => different sizes
 # - RGB and masked input with early/late fusion
@@ -158,9 +201,10 @@ if __name__ == "__main__":
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda:0" if use_cuda else "cpu")
 
-    tensor = torch.zeros((1, 3, 300, 400)).to(device)
+    # tensor = torch.zeros((1, 3, 300, 400)).to(device)
+    tensor = [torch.zeros((1, 3, 300, 400)).to(device), torch.zeros((1, 3, 300, 400)).to(device)]
 
-    net = ResNet18Regressor().to(device)
+    net = ResNet18DualBranchRegressor().to(device)
     out = net(tensor)
     print(out.shape)
 
