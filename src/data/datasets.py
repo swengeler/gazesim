@@ -1,5 +1,6 @@
 import os
 import cv2
+import numpy as np
 import pandas as pd
 
 import torch
@@ -394,6 +395,77 @@ class SingleVideoDatasetPIMS(SingleVideoDataset):
         return frame, label
 
 
+class DroneControlStackedDatasetPIMS(DroneControlDataset):
+
+    def __init__(self, *args, stack_size=16, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.stack_size = stack_size
+
+        # find contiguous sequences of frames
+        sequences = []
+        frames = self.df_index["frame"]
+        jumps = (frames - frames.shift()) != 1
+        frames = list(frames.index[jumps]) + [frames.index[-1] + 1]
+        for i, start_index in enumerate(frames[:-1]):
+            # note that the range [start_frame, end_frame) is exclusive
+            sequences.append((start_index, frames[i + 1]))
+
+        # need some way to not mess up the indexing, but also cannot remove data
+        # maybe use second "index" that skips the (stack_size - 1) first frames of each contiguous sequence?
+        self.df_index["stack_index"] = -1
+        df_col_index = self.df_index.columns.get_loc("stack_index")
+        total_num_frame_stacks = 0
+        for start_index, end_index in sequences:
+            num_frames_seq = end_index - start_index
+            num_frame_stacks = num_frames_seq - self.stack_size + 1
+            if end_index - start_index < self.stack_size:
+                continue
+
+            # assign index over entire dataframe to "valid" frames
+            index = np.arange(num_frame_stacks) + total_num_frame_stacks
+            self.df_index.iloc[(start_index + stack_size - 1):end_index, df_col_index] = index
+
+            # keep track of the current number of stacks (highest index)
+            total_num_frame_stacks += num_frame_stacks
+
+    def __len__(self):
+        return (self.df_index["stack_index"] != -1).sum()
+
+    def __getitem__(self, item):
+        stack_index = self.df_index.index[self.df_index["stack_index"] == item].values[0]
+        df_stack = self.df_index.iloc[(stack_index - self.stack_size + 1):(stack_index + 1)]
+
+        # this should probably always work since contiguous clips are from the same video
+        full_run_path = os.path.join(self.data_root, self.df_index["rel_run_path"].iloc[stack_index])
+        if full_run_path not in self.cap_dict:
+            self.cap_dict[full_run_path] = get_indexed_reader(os.path.join(full_run_path, f"{self.video_name}.mp4"))
+
+        stack = []
+        stack_original = []
+        for _, row in df_stack.iterrows():
+            frame = self.cap_dict[full_run_path][row["frame"]]
+
+            frame_original = frame.copy()
+            if self.data_transform:
+                frame = self.data_transform(frame)
+
+            stack.append(frame)
+            stack_original.append(frame_original)
+
+        # stack the frames
+        stack = torch.stack(stack, 1)
+        stack_original = np.stack(stack_original, 0)
+
+        # the label is still only from a single frame
+        label = self.df_index[["Throttle", "Roll", "Pitch", "Yaw"]].iloc[stack_index].values
+        label = torch.from_numpy(label).float()
+
+        if self.return_original:
+            return stack, label, stack_original, label
+        return stack, label
+
+
 def get_dataset(data_root, split="train", data_type="turn_left", video_name="screen", resize_height=150, use_pims=False, sub_index=None):
     dataset = None
 
@@ -405,6 +477,8 @@ def get_dataset(data_root, split="train", data_type="turn_left", video_name="scr
         turn_type = "turn_left"
     elif data_type == "turn_right_drone_control_gt":
         turn_type = "turn_right"
+    elif data_type == "single_video":
+        turn_type = "turn_left"
 
     if isinstance(video_name, str):
         mean = STATISTICS[video_name][turn_type]["mean"]
@@ -442,8 +516,8 @@ def get_dataset(data_root, split="train", data_type="turn_left", video_name="scr
         )
     elif data_type in ["turn_left_drone_control_gt", "turn_right_drone_control_gt", "turn_both_drone_control_gt"]:
         if isinstance(video_name, str):
-            dataset_class = DroneControlDatasetPIMS if use_pims else DroneControlDataset
-            dataset = dataset_class(
+            # dataset_class = DroneControlDatasetPIMS if use_pims else DroneControlDataset
+            dataset = DroneControlStackedDatasetPIMS(
                 data_root=data_root,
                 split=split,
                 prefix=data_type,
@@ -482,9 +556,29 @@ def get_dataset(data_root, split="train", data_type="turn_left", video_name="scr
 
 
 if __name__ == "__main__":
-    import numpy as np
     from time import time
     from tqdm import tqdm
+
+    ds = DroneControlStackedDatasetPIMS(
+        data_root=os.getenv("GAZESIM_ROOT"),
+        stack_size=4,
+        split="train",
+        prefix="turn_left_drone_control_gt",
+        gt_name="moving_window_gt",
+        data_transform=transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize(300),
+            transforms.ToTensor(),
+            transforms.Normalize([0, 0, 0], [1, 1, 1])
+        ])
+    )
+
+    print()
+    print("len:", len(ds))
+    test_stack, test_label = ds[5]
+    print(test_stack.shape)
+
+    exit()
 
     # test that everything with the dataset works as intended
     ds = get_dataset(os.getenv("GAZESIM_ROOT"), data_type="turn_left_drone_control_gt",

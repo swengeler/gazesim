@@ -11,7 +11,9 @@ from datetime import datetime
 from tqdm import tqdm
 from src.data.datasets import get_dataset
 from src.models.vgg import VGG16BaseModel
-from src.models.resnet import ResNet18BaseModel, ResNet18BaseModelSimple, ResNet18Regressor, ResNet18SimpleRegressor, ResNet18DualBranchRegressor
+from src.models.resnet import ResNet18BaseModel, ResNet18BaseModelSimple
+from src.models.resnet import ResNet18Regressor, ResNet18SimpleRegressor, ResNet18DualBranchRegressor
+from src.models.c3d import C3DRegressor
 from src.models.utils import image_softmax, image_log_softmax, image_max
 
 
@@ -28,6 +30,8 @@ def resolve_model_class(name):
         return ResNet18SimpleRegressor
     elif name == "resnet18_dual":
         return ResNet18DualBranchRegressor
+    elif name == "c3d":
+        return C3DRegressor
     return VGG16BaseModel
 
 
@@ -267,7 +271,7 @@ if __name__ == "__main__":
                         choices=["screen", "hard_mask_moving_window_gt",
                                  "mean_mask_moving_window_gt", "soft_mask_moving_window_gt"],
                         help="The type of turn to train on (left or right).")
-    parser.add_argument("-rh", "--resize_height", type=int, default=150,
+    parser.add_argument("-rh", "--resize_height", type=int, default=150, nargs="+",
                         help="Height that input images and the ground-truth are rescaled to (with width being "
                              "adjusted accordingly). For VGG16 this should be 150, for ResNet18 200.")
     parser.add_argument("--use_pims", action="store_true",
@@ -276,7 +280,7 @@ if __name__ == "__main__":
     # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str, default="vgg16",
                         choices=["vgg16", "resnet18", "resnet18_simple", "resnet18_regressor",
-                                 "resnet18_simple_regressor", "resnet18_dual"],
+                                 "resnet18_simple_regressor", "resnet18_dual", "c3d"],
                         help="The name of the model to use (only VGG16 and ResNet18 available currently).")
     parser.add_argument("-np", "--not_pretrained", action="store_true",
                         help="Disable using pretrained weights for the encoder where available.")
@@ -312,6 +316,10 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
     if len(arguments.video_name) == 1:
         arguments.video_name = arguments.video_name[0]
+    if len(arguments.resize_height) == 1:
+        arguments.resize_height = arguments.resize_height[0]
+    else:
+        arguments.resize_height = tuple(arguments.resize_height)
 
     # train
     train(arguments)
