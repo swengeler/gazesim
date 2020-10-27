@@ -134,7 +134,7 @@ def add_turn_info(data, df_screen_ts, df_lap_info):
 
     # TODO: for this to work properly, either need to implement some fancy stuff to
     #  "wrap around" for the right half or redefine laps to start and end in the middle
-    gates_list = [(3, 4, 5), (8, 9, 10), (2, 3, 4, 5, 6), (7, 8, 9, 10, 1)][:2]
+    gates_list = [(1, 2, 3), (6, 7, 8), (0, 1, 2, 3, 4), (5, 6, 7, 8, 9)][:2]
     label_list = ["left_turn", "right_turn", "left_half", "right_half"][:2]
     for _, row in df_lap_info.iterrows():
         gate_id = [int(i) for i in row["gate_id"][1:-1].strip().split()]

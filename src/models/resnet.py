@@ -174,7 +174,7 @@ class ResNet18DualBranchRegressor(nn.Module):
     def forward(self, x):
         # pass both images through the branches
         x_0 = self.features_0(x[0])
-        x_1 = self.features_0(x[1])
+        x_1 = self.features_1(x[1])
 
         # pooling
         x_0 = self.pooling(x_0)
