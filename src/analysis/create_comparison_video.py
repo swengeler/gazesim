@@ -179,7 +179,8 @@ def handle_single_video(args, run_dir, frame_info_path):
                         (255, 255, 255) if row["turn_right"] == 1 else (50, 50, 50), 1)
 
         # write the newly created frame to file
-        video_writer.write(new_frame)
+        for _ in range(args.slow_down_factor):
+            video_writer.write(new_frame)
 
         # if row["frame"] >= 500:
         #     break
@@ -236,6 +237,8 @@ if __name__ == "__main__":
     parser.add_argument("-om", "--output_mode", type=str, default="overlay_maps",
                         choices=["overlay_maps", "overlay_all", "overlay_none", "overlay_raw"],
                         help="The path to the model checkpoint to use for computing the predictions.")
+    parser.add_argument("-sf", "--slow_down_factor", type=int, default=1,
+                        help="Factor by which the output video is slowed down (frames are simply saved multiple times).")
     parser.add_argument("--use_pims", action="store_true",
                         help="Whether to use PIMS (PyAV) instead of OpenCV for reading frames.")
 
