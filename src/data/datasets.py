@@ -561,7 +561,7 @@ if __name__ == "__main__":
 
     ds = DroneControlStackedDatasetPIMS(
         data_root=os.getenv("GAZESIM_ROOT"),
-        stack_size=4,
+        stack_size=16,
         split="train",
         prefix="turn_left_drone_control_gt",
         gt_name="moving_window_gt",

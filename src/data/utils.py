@@ -146,7 +146,7 @@ def generate_gaussian_heatmap(width=800,
 ##########################################################
 
 
-def filter_by_screen_ts(df_screen, df_other, buffer=0.0):
+def filter_by_screen_ts(df_screen, df_other, buffer=(1 / 120)):
     # use only those timestamps that can be matched to the "screen" video
     first_screen_ts = df_screen["ts"].iloc[0] - buffer
     last_screen_ts = df_screen["ts"].iloc[-1] + buffer
@@ -156,12 +156,10 @@ def filter_by_screen_ts(df_screen, df_other, buffer=0.0):
     frame_ts_prev = df_screen["ts"].values[:-1]
     frame_ts_next = df_screen["ts"].values[1:]
     frame_ts_midpoint = ((frame_ts_prev + frame_ts_next) / 2).tolist()
-    frame_ts_midpoint.insert(0, first_screen_ts)
-    frame_ts_midpoint.append(last_screen_ts)
+    frame_ts_midpoint.insert(0, first_screen_ts - (1 / 120))
+    frame_ts_midpoint.append(last_screen_ts + (1 / 120))
 
     # update the gaze dataframe with the "screen" frames
-    # TODO: maybe should just put this in a separate column and save in the CSV file?
-    # TODO: CAN'T USE FRAME_IDX HERE!!!!! NEED THE ACTUAL FRAME!!!!!!!!
     for frame_idx, ts_prev, ts_next in zip(df_screen["frame"], frame_ts_midpoint[:-1], frame_ts_midpoint[1:]):
         df_other.loc[(ts_prev <= df_other["ts"]) & (df_other["ts"] < ts_next), "frame"] = frame_idx
 

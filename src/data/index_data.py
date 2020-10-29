@@ -84,7 +84,7 @@ def add_gaze_measurement_available(data, df_screen_ts, df_gaze):
     # => might then just have to add more columns for any "weird" GT computations that deviates if there are any
     # => seem like it would be especially relevant for the control GT (maybe time-lag for GT computation there)
 
-    df_screen_ts, df_gaze = filter_by_screen_ts(df_screen_ts, df_gaze, buffer=((1 / 60) / 2))
+    df_screen_ts, df_gaze = filter_by_screen_ts(df_screen_ts, df_gaze)
     gaze_measurement_available = df_screen_ts["frame"].isin(df_gaze["frame"]).astype(int)
 
     data["gaze_measurement_available"].extend(gaze_measurement_available)
@@ -92,7 +92,7 @@ def add_gaze_measurement_available(data, df_screen_ts, df_gaze):
 
 
 def add_control_measurement_available(data, df_screen_ts, df_drone):
-    df_screen_ts, df_drone = filter_by_screen_ts(df_screen_ts, df_drone, buffer=((1 / 60) / 2))
+    df_screen_ts, df_drone = filter_by_screen_ts(df_screen_ts, df_drone)
     gaze_measurement_available = df_screen_ts["frame"].isin(df_drone["frame"]).astype(int)
 
     data["control_measurement_available"].extend(gaze_measurement_available)
@@ -212,6 +212,10 @@ def main(args):
         add_rgb_available(data, run_dir, num_frames)
         add_gaze_measurement_available(data, df_screen_ts, df_gaze)
         add_control_measurement_available(data, df_screen_ts, df_drone)
+        # TODO: for the two above it actually makes more sense to be "more lenient" for which frames measurements are
+        #  available, i.e. if there is even a single measurement that would be assigned to this frame then there is one
+        #  available, whereas with ground-truth one might want to require that e.g. only frames with multiple
+        #  measurements are used (or ones close enough to the actual frame timestamp)
 
         # add information about the lap/trajectory as a whole
         add_lap_info(data, df_screen_ts, df_lap_info, df_trajectory)
