@@ -197,31 +197,10 @@ class Index:
         self._click(False)
 
 
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
-                        help="The root directory of the dataset (should contain only subfolders for each subject).")
-    parser.add_argument("-tn", "--track_name", type=str, default="flat",
-                        help="The name of the track.")
-
-    arguments = parser.parse_args()
-
-    # create the overlaid image if it doesn't exist already
-    image_load_dir = os.path.join(arguments.data_root, "preprocessing_info")
-    image_path = os.path.join(image_load_dir, f"all_trajectories_{arguments.track_name}.png")
-    if not os.path.exists(image_path):
-        if not os.path.exists(image_load_dir):
-            os.makedirs(image_load_dir)
-
-        print("Need to create image of all overlaid (valid) trajectories first.")
-        plot_all_trajectories(arguments, image_path)
-
+def main(args, image_path):
     # proceed with recording the "expected trajectory" data
-    callback = Index(arguments.data_root, arguments.track_name)
-    image = plt.imread(image_path)
+    callback = Index(ARGS.data_root, ARGS.track_name)
+    image = plt.imread(IMAGE_PATH)
 
     figure, axis = plt.subplots()
     plt.subplots_adjust(bottom=0.2)
@@ -238,3 +217,26 @@ if __name__ == "__main__":
 
     plt.sca(axis)
     plt.show()
+
+
+if __name__ == "__main__":
+    import argparse
+
+    PARSER = argparse.ArgumentParser()
+
+    PARSER.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
+                        help="The root directory of the dataset (should contain only subfolders for each subject).")
+    PARSER.add_argument("-tn", "--track_name", type=str, default="flat",
+                        help="The name of the track.")
+
+    ARGS = PARSER.parse_args()
+
+    # create the overlaid image if it doesn't exist already
+    IMAGE_LOAD_DIR = os.path.join(ARGS.data_root, "preprocessing_info")
+    IMAGE_PATH = os.path.join(IMAGE_LOAD_DIR, f"all_trajectories_{ARGS.track_name}.png")
+    if not os.path.exists(IMAGE_PATH):
+        if not os.path.exists(IMAGE_LOAD_DIR):
+            os.makedirs(IMAGE_LOAD_DIR)
+
+        print("Need to create image of all overlaid (valid) trajectories first.")
+        plot_all_trajectories(ARGS, IMAGE_PATH)

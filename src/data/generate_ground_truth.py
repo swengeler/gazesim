@@ -1,46 +1,75 @@
 import os
-import threading
-import queue
 import numpy as np
 import pandas as pd
 import cv2
 
-from src.data.utils import iterate_directories, generate_gaussian_heatmap, filter_by_screen_ts
+from typing import Type
 from tqdm import tqdm
 from time import time
+from src.data.utils import iterate_directories, generate_gaussian_heatmap, filter_by_screen_ts, parse_run_info
 
 
-class GroundTruthGenerator(threading.Thread):
+class GroundTruthGenerator:
 
-    def __init__(self, q, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.q = q
+    def __init__(self, config):
+        self.run_dir_list = iterate_directories(config["data_root"], track_names=config["track_name"])
+
+    def get_gt_info(self, run_dir, subject, run):
+        raise NotImplementedError()
 
     def compute_gt(self, run_dir):
         raise NotImplementedError()
 
-    def run(self):
-        while True:
-            try:
-                run_dir = self.q.get(timeout=3)  # 3s timeout
-            except queue.Empty:
-                return
-            self.compute_gt(run_dir)
-            self.q.task_done()
+    def generate(self):
+        for rd in self.run_dir_list:
+            self.compute_gt(rd)
 
 
-class MovingWindowGT(GroundTruthGenerator):
+class MovingWindowFrameMeanGT(GroundTruthGenerator):
 
-    def __init__(self, *args, window_size=25, **kwargs):
-        super().__init__(*args, **kwargs)
+    NAME = "moving_window_frame_mean_gt"
+
+    def __init__(self, config):
+        super().__init__(config)
 
         # make sure the input is correct
-        assert window_size > 0 and window_size % 2 == 1
+        assert config["mw_size"] > 0 and config["mw_size"] % 2 == 1
 
-        self._half_window_size = int((window_size - 1) / 2)
+        self._half_window_size = int((config["mw_size"] - 1) / 2)
+
+    def get_gt_info(self, run_dir, subject, run):
+        # get the path to the index directory
+        index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
+        frame_index_path = os.path.join(index_dir, "frame_index.csv")
+        gaze_gt_path = os.path.join(index_dir, "gaze_gt.csv")
+
+        df_frame_index = pd.read_csv(frame_index_path)
+
+        if os.path.exists(gaze_gt_path):
+            df_gaze_gt = pd.read_csv(gaze_gt_path)
+        else:
+            df_gaze_gt = df_frame_index.copy()
+            df_gaze_gt = df_gaze_gt[["frame", "subject", "run"]]
+
+        if self.__class__.NAME not in df_gaze_gt.columns:
+            df_gaze_gt[self.__class__.NAME] = -1
+
+        # in principle, need only subject and run to identify where to put the new info...
+        # e.g. track name is more of a property to filter on...
+        match_index = (df_gaze_gt["subject"] == subject) & (df_gaze_gt["run"] == run)
+
+        return df_gaze_gt, gaze_gt_path, match_index
 
     def compute_gt(self, run_dir):
         start = time()
+
+        # get info about the current run
+        run_info = parse_run_info(run_dir)
+        subject = run_info["subject"]
+        run = run_info["run"]
+
+        # get the ground-truth info
+        df_gaze_gt, gaze_gt_path, match_index = self.get_gt_info(run_dir, subject, run)
 
         # initiate video capture and writer
         video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
@@ -51,6 +80,19 @@ class MovingWindowGT(GroundTruthGenerator):
         if not (w == 800 and h == 600):
             print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
             return
+
+        if not int(num_frames) == match_index.sum():
+            print("WARNING: Number of frames in video and registered in main index is different for directory '{}'.".format(run_dir))
+            return
+
+        # writer is only initialised after making sure that everything else works
+        video_writer = cv2.VideoWriter(
+            os.path.join(run_dir, f"{self.__class__.NAME}.mp4"),
+            int(fourcc),
+            fps,
+            (int(w), int(h)),
+            True
+        )
 
         # load data frames with the timestamps and positions for gaze and the frames/timestamps for the video
         df_gaze = pd.read_csv(os.path.join(run_dir, "gaze_on_surface.csv"))
@@ -73,17 +115,7 @@ class MovingWindowGT(GroundTruthGenerator):
         df_gaze["frame"] = df_gaze.index
 
         # create new dataframe to write frame-level information into
-        df_frame_info = df_screen.copy()
-        df_frame_info = df_frame_info[["frame"]]
-        df_frame_info["gt_available"] = df_frame_info["frame"].isin(df_gaze["frame"]).astype(int)
-
-        video_writer = cv2.VideoWriter(
-            os.path.join(run_dir, "moving_window_gt.mp4"),
-            int(fourcc),
-            fps,
-            (int(w), int(h)),
-            True
-        )
+        df_gaze_gt.loc[match_index, self.__class__.NAME] = df_screen["frame"].isin(df_gaze["frame"]).astype(int).values
 
         # loop through all frames and compute the ground truth (where possible)
         for frame_idx in tqdm(df_screen["frame"], disable=False):
@@ -106,23 +138,57 @@ class MovingWindowGT(GroundTruthGenerator):
             heatmap = (heatmap * 255).astype("uint8")
             heatmap = np.repeat(heatmap[:, :, np.newaxis], 3, axis=2)
 
-            # load the frame and modify it
+            # save the resulting frame
             video_writer.write(heatmap)
 
         video_writer.release()
 
-        # save screen dataframe to CSV, updated with additional column
-        df_frame_info.to_csv(os.path.join(run_dir, "screen_frame_info.csv"), index=False)
+        # save gaze gt index to CSV with updated data
+        df_gaze_gt.to_csv(gaze_gt_path, index=False)
 
         print("Saved moving window ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
-class DroneControlGT(GroundTruthGenerator):
+class DroneControlFrameMeanGT(GroundTruthGenerator):
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    NAME = "drone_control_frame_mean_gt"
+
+    def get_gt_info(self, run_dir, subject, run):
+        # get the path to the index directory
+        index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
+        frame_index_path = os.path.join(index_dir, "frame_index.csv")
+        control_gt_path = os.path.join(index_dir, "control_gt.csv")
+
+        df_frame_index = pd.read_csv(frame_index_path)
+
+        if os.path.exists(control_gt_path):
+            df_control_gt = pd.read_csv(control_gt_path)
+        else:
+            df_control_gt = df_frame_index.copy()
+            df_control_gt = df_control_gt[["frame", "subject", "run"]]
+
+        if self.__class__.NAME not in df_control_gt.columns:
+            df_control_gt[self.__class__.NAME] = -1
+            df_control_gt["Thrust"] = np.nan
+            df_control_gt["Roll"] = np.nan
+            df_control_gt["Pitch"] = np.nan
+            df_control_gt["Yaw"] = np.nan
+
+        # in principle, need only subject and run to identify where to put the new info...
+        # e.g. track name is more of a property to filter on...
+        match_index = (df_control_gt["subject"] == subject) & (df_control_gt["run"] == run)
+
+        return df_control_gt, control_gt_path, match_index
 
     def compute_gt(self, run_dir):
+        # get info about the current run
+        run_info = parse_run_info(run_dir)
+        subject = run_info["subject"]
+        run = run_info["run"]
+
+        # get the ground-truth info
+        df_control_gt, control_gt_path, match_index = self.get_gt_info(run_dir, subject, run)
+
         # define paths
         df_drone_path = os.path.join(run_dir, "drone.csv")
         df_screen_path = os.path.join(run_dir, "screen_timestamps.csv")
@@ -131,7 +197,6 @@ class DroneControlGT(GroundTruthGenerator):
         # load dataframes
         df_drone = pd.read_csv(df_drone_path)
         df_screen = pd.read_csv(df_screen_path)
-        df_screen_info = pd.read_csv(df_screen_info_path)
 
         # select only the necessary data from the gaze dataframe and compute the on-screen coordinates
         df_drone = df_drone[["ts", "Throttle", "Roll", "Pitch", "Yaw"]]
@@ -148,52 +213,52 @@ class DroneControlGT(GroundTruthGenerator):
         df_drone = df_drone[["frame", "Throttle", "Roll", "Pitch", "Yaw"]]
 
         # add information about control GT being available to frame-wise screen info
-        df_screen_info["control_gt_available"] = df_screen_info["frame"].isin(df_drone["frame"]).astype(int)
-        df_screen_info.to_csv(df_screen_info_path, index=False)
+        df_control_gt.loc[match_index, self.__class__.NAME] = df_screen["frame"].isin(df_drone["frame"]).astype(int).values
+        for _, row in tqdm(df_drone.iterrows(), disable=False, total=len(df_drone.index)):
+            df_control_gt.loc[match_index & (df_control_gt["frame"] == row["frame"]),
+                              ["Throttle", "Roll", "Pitch", "Yaw"]] = row[["Throttle", "Roll", "Pitch", "Yaw"]].values
 
-        # save drone stuff
-        df_drone.to_csv(os.path.join(run_dir, "drone_control_gt.csv"), index=False)
+        # save control gt to CSV with updated data
+        df_control_gt.to_csv(control_gt_path, index=False)
+
+
+def resolve_gt_class(ground_truth_type: str) -> Type[GroundTruthGenerator]:
+    if ground_truth_type == "moving_window_frame_mean_gt":
+        return MovingWindowFrameMeanGT
+    elif ground_truth_type == "drone_control_frame_mean_gt":
+        return DroneControlFrameMeanGT
+    return GroundTruthGenerator
+
+
+def main(args):
+    config = vars(args)
+
+    generator = resolve_gt_class(config["ground_truth_type"])(config)
+    generator.generate()
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser()
+    PARSER = argparse.ArgumentParser()
 
     # general arguments
-    parser.add_argument("-n", "--num_workers", type=int, default=4,
-                        help="The number of workers to use for generating the ground-truth.")
-    parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
+    PARSER.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    parser.add_argument("-t", "--ground_truth_type", type=str, default="moving_window",
-                        choices=["moving_window", "drone_control"],
+    PARSER.add_argument("-tn", "--track_name", type=str, nargs="+", default=["flat", "wave"], choices=["flat", "wave"],
+                        help="The method to use to compute the ground-truth.")
+    PARSER.add_argument("-gtt", "--ground_truth_type", type=str, default="moving_window_frame_mean_gt",
+                        choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt"],
                         help="The method to use to compute the ground-truth.")
 
     # arguments only used for moving_window
-    parser.add_argument("--mw_size", type=int, default=25,
+    PARSER.add_argument("--mw_size", type=int, default=25,
                         help="Size of the temporal window in frames from which the "
                              "ground-truth for the current frame should be computed.")
 
     # parse the arguments
-    arguments = parser.parse_args()
+    ARGS = PARSER.parse_args()
 
-    # generate the ground-truth
-    task_queue = queue.Queue()
-    for rd in iterate_directories(arguments.data_root):
-        if "s006/09_flat" in rd:
-            break
-        task_queue.put_nowait(rd)
+    # generate the GT
+    main(ARGS)
 
-    try:
-        if arguments.ground_truth_type == "moving_window":
-            for _ in range(arguments.num_workers):
-                MovingWindowGT(task_queue, window_size=arguments.mw_size).start()
-        elif arguments.ground_truth_type == "drone_control":
-            for _ in range(arguments.num_workers):
-                DroneControlGT(task_queue).start()
-        else:
-            print("No ground-truth type specified. Not generating any ground-truth.")
-    except KeyboardInterrupt as e:
-        print(e)
-
-    task_queue.join()

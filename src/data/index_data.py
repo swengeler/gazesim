@@ -198,7 +198,7 @@ def main(args):
         if os.path.exists(os.path.join(run_dir, "expected_trajectory.csv")):
             # TODO: need to add this info for "wave" tracks as well
             #  - would maybe be good to have "horizontal" and "vertical" view of trajectory and judge that?
-            pd.read_csv(os.path.join(run_dir, "expected_trajectory.csv"))
+            df_trajectory = pd.read_csv(os.path.join(run_dir, "expected_trajectory.csv"))
 
         num_frames = len(df_screen_ts.index)
 
@@ -212,10 +212,6 @@ def main(args):
         add_rgb_available(data, run_dir, num_frames)
         add_gaze_measurement_available(data, df_screen_ts, df_gaze)
         add_control_measurement_available(data, df_screen_ts, df_drone)
-        # TODO: for the two above it actually makes more sense to be "more lenient" for which frames measurements are
-        #  available, i.e. if there is even a single measurement that would be assigned to this frame then there is one
-        #  available, whereas with ground-truth one might want to require that e.g. only frames with multiple
-        #  measurements are used (or ones close enough to the actual frame timestamp)
 
         # add information about the lap/trajectory as a whole
         add_lap_info(data, df_screen_ts, df_lap_info, df_trajectory)
@@ -228,22 +224,26 @@ def main(args):
     for key in data:
         print("{}: {}".format(key, len(data[key])))
 
+    index_dir = os.path.join(args.data_root, "index")
+    if not os.path.exists(index_dir):
+        os.makedirs(index_dir)
+
     df_data = pd.DataFrame(data)
-    df_data.to_csv(os.path.join(args.data_root, "index.csv"), index=False)
+    df_data.to_csv(os.path.join(index_dir, "frame_index.csv"), index=False)
 
 
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser()
+    PARSER = argparse.ArgumentParser()
 
-    parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
+    PARSER.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    parser.add_argument("-e", "--exclude", type=str, nargs="+", default=[],
-                        help="Properties to exclude from indexing.")
+    PARSER.add_argument("-e", "--exclude", type=str, nargs="+", default=[],
+                        help="Properties to exclude from indexing. NOTE: not implemented yet, might not be necessary.")
 
     # parse the arguments
-    arguments = parser.parse_args()
+    ARGS = PARSER.parse_args()
 
     # main
-    main(arguments)
+    main(ARGS)

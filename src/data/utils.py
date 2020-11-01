@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import cv2
 
 from tqdm import tqdm
-from pims import PyAVReaderIndexed, PyAVReaderTimed
+from pims import PyAVReaderIndexed
 from scipy.stats import multivariate_normal as mvn
 
 ########################################
@@ -58,6 +58,27 @@ def parse_run_info(run_dir):
     }
 
     return info
+
+
+def run_info_to_path(subject, run, track_name):
+    return os.path.join("s{:03d}".format(subject), "{:02d}_{}".format(run, track_name))
+
+
+def pair(arg):
+    # custom argparse type
+    arg_split = arg.split(":")
+    property_name = arg_split[0]
+    property_value = arg_split[1]
+
+    try:
+        property_value = int(arg_split[1])
+    except ValueError:
+        try:
+            property_value = float(arg_split[1])
+        except ValueError:
+            pass
+
+    return property_name, property_value
 
 
 def get_indexed_reader(video_path):
@@ -164,3 +185,37 @@ def filter_by_screen_ts(df_screen, df_other, buffer=(1 / 120)):
         df_other.loc[(ts_prev <= df_other["ts"]) & (df_other["ts"] < ts_next), "frame"] = frame_idx
 
     return df_screen, df_other
+
+
+# TODO: maybe move this to the top of the file (especially if there will be "constants")
+PROPERTY_KEEP_DICT = {
+    "expected_trajectory": 1,
+    "valid_lap": 1,
+    "left_turn": 1,
+    "right_turn": 1,
+    "left_half": 1,
+    "right_half": 1
+}
+
+
+def filter_by_property(data, properties, property_keep_dict=None, add_to_properties=False):
+    # assume that data is a dataframe in the format of the main index file
+    # TODO: maybe just use dict for properties? with the respective value(s) for a key being specified in there
+    if property_keep_dict is None:
+        property_keep_dict = PROPERTY_KEEP_DICT
+    else:
+        for k in property_keep_dict:
+            if k not in properties:
+                properties.append(k)
+        if add_to_properties:
+            property_keep_dict.update(PROPERTY_KEEP_DICT)
+
+    assert all([p in property_keep_dict.keys() for p in properties]), \
+        "All properties to filter on must have a defined condition/value to keep them."
+    assert all([p in data.columns for p in properties]), "All properties must be column names of the input dataframes."
+
+    for p in properties:
+        # TODO: maybe add different checks for different properties if required (e.g. isin())
+        data = data[data[p] == property_keep_dict[p]]
+
+    return data

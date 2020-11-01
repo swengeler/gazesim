@@ -559,6 +559,7 @@ if __name__ == "__main__":
     from time import time
     from tqdm import tqdm
 
+    """
     ds = DroneControlStackedDatasetPIMS(
         data_root=os.getenv("GAZESIM_ROOT"),
         stack_size=16,
@@ -579,12 +580,16 @@ if __name__ == "__main__":
     print(test_stack.shape)
 
     exit()
+    """
 
     # test that everything with the dataset works as intended
     ds = get_dataset(os.getenv("GAZESIM_ROOT"), data_type="turn_left_drone_control_gt",
                      video_name=("screen", "hard_mask_moving_window_gt"), use_pims=True)
     print("Dataset length:", len(ds))
     test_data, test_label = ds[0]
+    print(torch.mean(test_data[0], dim=(1, 2)))
+    print(torch.std(test_data[0], dim=(1, 2)))
+    # print(torch.std(test_data, dim=-1))
     # print("test_data:", type(test_data), test_data.shape, test_data.min(), test_data.max())
     # print("test_label:", type(test_label), test_label.shape, test_label.max(), test_label.sum())
 

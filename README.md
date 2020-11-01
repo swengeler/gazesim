@@ -6,6 +6,29 @@ The animation below shows a single lap flight along the figure-eight "wave" trac
 
 ![](/media/anim.gif)
 
+## Preparing the data for training
+
+Before creating an index and generating ground-truth, individual laps should be filtered by whether they follow an "expected" trajectory (and thus are useful for learning to fly well):
+```shell script
+python src/data/generate_expected_trajectory_entries.py -tn flat/wave
+```
+This script will first create an image of all valid trajectories and then overlay each lap individually on top of it, with the user having to choose whether it follows an expected trajectory or not (buttons "Yes" or "No"). For now this has to be executed two times, once for each track name ("flat" and "wave").
+
+To generate a global index of all frames including certain properties to filter by (e.g. `valid_lap`, `expected_trajectory`), run:
+```shell script
+python src/data/index_data.py
+```
+
+After that the "context" for the generation of ground-truth is established, and it an be generated for attention map prediction and control input prediction with the following two commands respectively:
+```shell script
+python src/data/generate_ground_truth.py -gtt moving_window_frame_mean_gt
+```
+```shell script
+python src/data/generate_ground_truth.py -gtt drone_control_frame_mean_gt
+```
+
+To be able to use masked videos, one should first compute the mean mask(s).
+
 
 ## Experiment overview
 

@@ -1,5 +1,4 @@
 import os
-import re
 import numpy as np
 import cv2
 
@@ -74,7 +73,7 @@ def main(args):
     args.data_root = os.path.abspath(args.data_root)
     # args.output_mode = ["soft_mask", "hard_mask", "mean_mask"] if args.output_mode == "all" else [args.output_mode]
 
-    for run_dir in iterate_directories(args.data_root):
+    for run_dir in iterate_directories(args.data_root, args.track_name):
         # need ground-truth to be there
         gt_video_path = os.path.join(run_dir, f"{args.ground_truth_name}.mp4")
 
@@ -90,9 +89,9 @@ if __name__ == "__main__":
 
     parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    parser.add_argument("-tn", "--track_name", type=str, default="flat",
+    parser.add_argument("-tn", "--track_name", type=str, nargs="+", default=["flat", "wave"],
                         help="The name of the track.")
-    parser.add_argument("-gtn", "--ground_truth_name", type=str, default="moving_window_gt",
+    parser.add_argument("-gtn", "--ground_truth_name", type=str, default="moving_window_frame_mean_gt",
                         help="The name of the ground-truth video.")
     parser.add_argument("-om", "--output_mode", type=str, default="all",
                         choices=["all", "soft_mask", "hard_mask", "mean_mask"],

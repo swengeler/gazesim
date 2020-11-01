@@ -41,6 +41,11 @@ def convert_attention_to_image(attention):
     return attention / maximum
 
 
+def parse_config(args):
+    # convert argparse namespace to dictionary and maybe change some of the entries
+    pass
+
+
 def train(args):
     # creating log and checkpoint directory and saving "config" file
     run_dir = os.path.join(args.log_root, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
