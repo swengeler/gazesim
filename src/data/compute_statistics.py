@@ -120,10 +120,14 @@ def compute_statistics(config):
     data_std = np.sqrt(data_std)
 
     # save to the JSON file
-    with open(config["split"] + "_info.json", "rw") as f:
+    with open(config["split"] + "_info.json", "r") as f:
         split_info = json.load(f)
-        split_info["mean"][config["video_name"]] = data_mean
-        split_info["std"][config["video_name"]] = data_std
+    if "mean" not in split_info:
+        split_info["mean"] = {}
+        split_info["std"] = {}
+    split_info["mean"][config["video_name"]] = data_mean.tolist()
+    split_info["std"][config["video_name"]] = data_std.tolist()
+    with open(config["split"] + "_info.json", "w") as f:
         json.dump(split_info, f)
 
 

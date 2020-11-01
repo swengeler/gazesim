@@ -21,9 +21,9 @@ from src.data.utils import filter_by_property, pair
 
 def find_next_split_name(split_dir):
     max_index = -1
-    for file in os.scandir(split_dir):
-        if file.is_file() and file.path.endswith(".csv"):
-            file_index = int(file.path[6:8])
+    for file in os.listdir(split_dir):
+        if os.path.isfile(os.path.join(split_dir, file)) and file.endswith(".csv"):
+            file_index = int(file[6:8])
             if file_index > max_index:
                 max_index = file_index
     return "split{:03d}".format(max_index + 1)
@@ -93,11 +93,11 @@ def generate_splits(data, config, return_data_index=False):
             test_index = np.array([], dtype=int)
     else:
         # group by the specified columns and create index and strata for the resulting dataframe
-        group_by_columns = group_by_columns[:stratification_level]
+        group_by_columns = group_by_columns
         grouped_data = data.groupby(group_by_columns).count()["frame"]
 
         index = np.arange(len(grouped_data.index))
-        strata = np.array([idx for idx in grouped_data.index.values])
+        strata = np.array([idx[:stratification_level] for idx in grouped_data.index.values])
 
         """
         if strata.shape[-1] == 1:
@@ -125,23 +125,32 @@ def generate_splits(data, config, return_data_index=False):
         total_index = np.arange(len(data.index))
 
         train_index = list(zip(*grouped_data.index[train_index].tolist()))
-        match = True
-        for col, idx in zip(group_by_columns, train_index):
-            match = match & data[col].isin(idx)
+        match = False
+        for combination in zip(*train_index):
+            current_match = True
+            for col, value in zip(group_by_columns, combination):
+                current_match = current_match & (data[col] == value)
+            match = match | current_match
         train_index = total_index[match]
 
         if val_index.size != 0:
             val_index = list(zip(*grouped_data.index[val_index].tolist()))
-            match = True
-            for col, idx in zip(group_by_columns, val_index):
-                match = match & data[col].isin(idx)
+            match = False
+            for combination in zip(*val_index):
+                current_match = True
+                for col, value in zip(group_by_columns, combination):
+                    current_match = current_match & (data[col] == value)
+                match = match | current_match
             val_index = total_index[match]
 
         if test_index.size != 0:
             test_index = list(zip(*grouped_data.index[test_index].tolist()))
-            match = True
-            for col, idx in zip(group_by_columns, test_index):
-                match = match & data[col].isin(idx)
+            match = False
+            for combination in zip(*test_index):
+                current_match = True
+                for col, value in zip(group_by_columns, combination):
+                    current_match = current_match & (data[col] == value)
+                match = match | current_match
             test_index = total_index[match]
 
     if return_data_index:
@@ -266,3 +275,4 @@ if __name__ == "__main__":
 
     # call the function thingy
     create_split_index(parse_config(ARGS))
+
