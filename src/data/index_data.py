@@ -188,7 +188,7 @@ def main(args):
         "right_half": []
     }
 
-    for run_dir in tqdm(iterate_directories(args.data_root)):
+    for run_dir in tqdm(iterate_directories(args.data_root, ["flat", "wave"])):
         # load relevant dataframes
         df_screen_ts = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
         df_gaze = pd.read_csv(os.path.join(run_dir, "gaze_on_surface.csv"))

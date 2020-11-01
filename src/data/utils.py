@@ -66,17 +66,21 @@ def run_info_to_path(subject, run, track_name):
 
 def pair(arg):
     # custom argparse type
-    arg_split = arg.split(":")
-    property_name = arg_split[0]
-    property_value = arg_split[1]
+    if ":" in arg:
+        arg_split = arg.split(":")
+        property_name = arg_split[0]
+        property_value = arg_split[1]
 
-    try:
-        property_value = int(arg_split[1])
-    except ValueError:
         try:
-            property_value = float(arg_split[1])
+            property_value = int(arg_split[1])
         except ValueError:
-            pass
+            try:
+                property_value = float(arg_split[1])
+            except ValueError:
+                pass
+    else:
+        property_name = arg
+        property_value = 1
 
     return property_name, property_value
 
@@ -92,6 +96,23 @@ def get_indexed_reader(video_path):
     toc = {"lengths": toc_lengths, "ts": toc_ts}
 
     return PyAVReaderIndexed(video_path, toc=toc)
+
+
+def resolve_split_index_path(split, data_root=None, return_base_name=True):
+    try:
+        split_index = int(split)
+        split = os.path.join("splits", "split{:03d}".format(split_index))
+        if data_root is not None:
+            split = os.path.join(data_root, split)
+    except ValueError:
+        if split.endswith(".json"):
+            split = os.path.abspath(split)[:-5]
+        elif split.endswith(".csv"):
+            split = os.path.abspath(split)[:-4]
+    if not return_base_name:
+        split += ".csv"
+
+    return split
 
 
 #################################

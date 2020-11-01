@@ -143,14 +143,16 @@ def get_mean_mask(data, config):
 def generate_from_index(config):
     # load the global index and the split index and combine them (to filter on the global index based on split)
     df_frame_index = pd.read_csv(os.path.join(config["data_root"], "index", "frame_index.csv"))
-    df_splits = pd.read_csv(config["index_file"])
+    df_splits = pd.read_csv(config["split"])
     df_frame_index["split"] = df_splits["split"]
 
     # filter out any frames with no gaze measurements available, not on a valid lap and not on an expected trajectory
+    # TODO: maybe simplify this (see compute_statistics.py)
     properties = {
         "gaze_measurement_available": 1,
         "valid_lap": 1,
         "expected_trajectory": 1,
+        "split": "train",
     }
     properties.update(config["filter"])
     df_frame_index = filter_by_property(df_frame_index, [], properties)
@@ -163,6 +165,14 @@ def generate_from_index(config):
 def parse_config(args):
     config = vars(args)
     config["filter"] = {n: v for n, v in config["filter"]}
+    try:
+        split_index = int(config["split"])
+        config["split"] = os.path.join(config["data_root"], "splits", "split{:03d}.csv".format(split_index))
+    except ValueError:
+        if config["split"].endswith(".json"):
+            config["split"] = os.path.abspath(config["split"])[:-5] + ".csv"
+        elif config["split"].endswith(".csv"):
+            config["split"] = os.path.abspath(config["split"])
     return config
 
 
@@ -173,8 +183,11 @@ if __name__ == "__main__":
 
     PARSER.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    PARSER.add_argument("-if", "--index_file", type=str, default=None,
-                        help="CSV file that indexes the frames from which to take the gaze measurements.")
+    # PARSER.add_argument("-if", "--index_file", type=str, default=None,
+    #                     help="CSV file that indexes the frames from which to take the gaze measurements.")
+    PARSER.add_argument("-s", "--split", default=0,
+                        help="The split of the data to compute statistics for (on the training set). "
+                             "Can either be the path to a file or an index.")
     PARSER.add_argument("-f", "--filter", type=pair, nargs="*", default=[],
                         help="Properties and their values to filter by in the format property_name:value.")
     PARSER.add_argument("-n", "--name", type=str, default=None, required=True,
@@ -190,12 +203,11 @@ if __name__ == "__main__":
 
     # main function call
     # generate_mean_mask(ARGS)
-    if CONFIG["index_file"] is not None:
-        generate_from_index(CONFIG)
-    else:
-        # TODO: if no index file is specified, should in principle split the data ourselves
-        # however, this would mean that all options that can be specified for generate_splits should also appear here
-        # not sure if this is a very nice way of doing it; an alternative might be to load a config file (e.g. in JSON
-        # format) as a dictionary and use the values from that => this could then also be used to dynamically create
-        # the same splits (since the seed is specified) when the datasets are created for training
-        pass
+    # if CONFIG["split"] is not None:
+    generate_from_index(CONFIG)
+
+    # TODO: if no index file is specified, should in principle split the data ourselves
+    # however, this would mean that all options that can be specified for generate_splits should also appear here
+    # not sure if this is a very nice way of doing it; an alternative might be to load a config file (e.g. in JSON
+    # format) as a dictionary and use the values from that => this could then also be used to dynamically create
+    # the same splits (since the seed is specified) when the datasets are created for training

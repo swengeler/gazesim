@@ -176,14 +176,21 @@ def create_split_index(config):
     # TODO: check that the exact same parameters have not been generated already
     # e.g. some function check_redundant()
 
-    # load the global index dataframe
+    # load the global index dataframes
     frame_index_path = os.path.join(config["data_root"], "index", "frame_index.csv")
+    gaze_gt_path = os.path.join(config["data_root"], "index", "gaze_gt.csv")
+    control_gt_path = os.path.join(config["data_root"], "index", "control_gt.csv")
     df_frame_index = pd.read_csv(frame_index_path)
+    df_gaze_gt = pd.read_csv(gaze_gt_path)
+    df_control_gt = pd.read_csv(control_gt_path)
+    df_frame_index = pd.concat([df_frame_index, df_gaze_gt, df_control_gt], axis=1)
 
     # create the dataframe to save the split information into and populate it with "none" values
     df_split = df_frame_index[["frame"]].copy()
     df_split.columns = ["split"]
     df_split["split"] = "none"
+
+    # TODO: also load GT files in the index directory and add their columns to this dataframe....
 
     # filter out the invalid laps, otherwise problems can arise when trying to split in a stratified manner
     # df_frame_index = df_frame_index[df_frame_index["valid_lap"] == 1]
@@ -192,6 +199,7 @@ def create_split_index(config):
         "expected_trajectory": 1,
     }
     properties.update(config["filter"])
+    properties.update(config["ground_truth_filter"])
     df_frame_index = filter_by_property(df_frame_index, [], properties)
 
     # create the splits
@@ -207,6 +215,9 @@ def create_split_index(config):
     df_split.iloc[train_index] = "train"
     df_split.iloc[val_index] = "val"
     df_split.iloc[test_index] = "test"
+
+    print(df_split.value_counts())
+    exit()
 
     # determine the name of the file to save the splits into and save the dataframe to CSV
     """
@@ -241,6 +252,7 @@ def parse_config(args):
     #    but then using the function stand-alone wouldn't check that anymore
     config = vars(args)
     config["filter"] = {n: v for n, v in config["filter"]}
+    config["ground_truth_filter"] = {n: v for n, v in config["ground_truth_filter"]}
     return config
 
 
@@ -269,6 +281,10 @@ if __name__ == "__main__":
                         help="The random seed to use for generating the splits.")
     PARSER.add_argument("-f", "--filter", type=pair, nargs="*", default=[],
                         help="Properties and their values to filter by in the format property_name:value.")
+    PARSER.add_argument("-gtf", "--ground_truth_filter", type=pair, nargs="*", default=[],
+                        help="Ground-truth availability filter.")
+    # TODO: maybe also filter by whether gaze/control GT is available? YESSSSSS!!!! need to do this...
+    #  => could have separate filter for which GT we want to be available....
 
     # parse the arguments
     ARGS = PARSER.parse_args()
