@@ -55,7 +55,10 @@ def generate_splits(data, config, return_data_index=False):
     #      one subject appears essentially #runs times in the index...
     #   => not sure if this might be desirable in some scenarios, but I strongly suspect that it isn't
     stratification_level = config["stratification_level"]
+    group_by_level = config["group_by_level"]
     assert stratification_level in [-1, 2, 3], "Invalid stratification level {}.".format(stratification_level)
+    assert stratification_level == -1 or stratification_level <= group_by_level, \
+        "'Group-by' level ({}) needs to be <= stratification level ({}).".format(group_by_level, stratification_level)
     assert all(data["valid_lap"] == 1), "Only data from valid laps can be split, otherwise laps might " \
                                         "contain too few frames to be split in a stratified manner."
 
@@ -93,8 +96,8 @@ def generate_splits(data, config, return_data_index=False):
             test_index = np.array([], dtype=int)
     else:
         # group by the specified columns and create index and strata for the resulting dataframe
-        group_by_columns = group_by_columns
-        grouped_data = data.groupby(group_by_columns).count()["frame"]
+        # group_by_columns = group_by_columns
+        grouped_data = data.groupby(group_by_columns[group_by_level]).count()["frame"]
 
         index = np.arange(len(grouped_data.index))
         strata = np.array([idx[:stratification_level] for idx in grouped_data.index.values])
@@ -181,8 +184,8 @@ def create_split_index(config):
     gaze_gt_path = os.path.join(config["data_root"], "index", "gaze_gt.csv")
     control_gt_path = os.path.join(config["data_root"], "index", "control_gt.csv")
     df_frame_index = pd.read_csv(frame_index_path)
-    df_gaze_gt = pd.read_csv(gaze_gt_path)
-    df_control_gt = pd.read_csv(control_gt_path)
+    df_gaze_gt = pd.read_csv(gaze_gt_path).drop(["frame", "subject", "run"], axis=1)
+    df_control_gt = pd.read_csv(control_gt_path).drop(["frame", "subject", "run"], axis=1)
     df_frame_index = pd.concat([df_frame_index, df_gaze_gt, df_control_gt], axis=1)
 
     # create the dataframe to save the split information into and populate it with "none" values
@@ -190,11 +193,10 @@ def create_split_index(config):
     df_split.columns = ["split"]
     df_split["split"] = "none"
 
-    # TODO: also load GT files in the index directory and add their columns to this dataframe....
-
     # filter out the invalid laps, otherwise problems can arise when trying to split in a stratified manner
     # df_frame_index = df_frame_index[df_frame_index["valid_lap"] == 1]
     properties = {
+        "rgb_available": 1,
         "valid_lap": 1,
         "expected_trajectory": 1,
     }
@@ -216,9 +218,6 @@ def create_split_index(config):
     df_split.iloc[val_index] = "val"
     df_split.iloc[test_index] = "test"
 
-    print(df_split.value_counts())
-    exit()
-
     # determine the name of the file to save the splits into and save the dataframe to CSV
     """
     filter_string = "-".join(["{}-{}".format(k, v) for k, v in config["filter"].items()])
@@ -231,7 +230,8 @@ def create_split_index(config):
     )
     """
     split_info = {k: config[k] for k in config.keys()
-                  & {"train_size", "val_size", "test_size", "stratification_level", "random_seed", "filter"}}
+                  & {"train_size", "val_size", "test_size", "stratification_level", "group_by_level",
+                     "random_seed", "filter", "ground_truth_filter"}}
 
     split_dir = os.path.join(config["data_root"], "splits")
     if not os.path.exists(split_dir):
@@ -270,21 +270,21 @@ if __name__ == "__main__":
                         help="The relative size of the validation split.")
     PARSER.add_argument("-tes", "--test_size", type=float, default=0.15,
                         help="The relative size of the test split.")
-    PARSER.add_argument("-sl", "--stratification_level", type=int, default=-1, choices=[-1, 2, 3],
+    PARSER.add_argument("-sl", "--stratification_level", type=int, default=-1, choices=[-1, 2, 3, 4],
                         help="Decides how the splits are generated in a stratified manner by trying to divide data "
                              "across the different splits as evenly as possible based on the frame properties "
                              "'track_name', 'subject', 'run', and 'lap_index' (in that order). The level refers to "
                              "the number of these that are used to define a 'class'; if -1 is chosen, frames from "
                              "the same lap can be put into different splits, otherwise the splits are 'cleanly "
                              "separated' by subject/run.")
+    PARSER.add_argument("-gbl", "--group_by_level", type=int, default=1, choices=[1, 2, 3, 4],
+                        help="TODO")
     PARSER.add_argument("-rs", "--random_seed", type=int, default=112,
                         help="The random seed to use for generating the splits.")
     PARSER.add_argument("-f", "--filter", type=pair, nargs="*", default=[],
                         help="Properties and their values to filter by in the format property_name:value.")
     PARSER.add_argument("-gtf", "--ground_truth_filter", type=pair, nargs="*", default=[],
                         help="Ground-truth availability filter.")
-    # TODO: maybe also filter by whether gaze/control GT is available? YESSSSSS!!!! need to do this...
-    #  => could have separate filter for which GT we want to be available....
 
     # parse the arguments
     ARGS = PARSER.parse_args()

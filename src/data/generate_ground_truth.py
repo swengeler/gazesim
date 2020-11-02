@@ -168,29 +168,32 @@ class DroneControlFrameMeanGT(GroundTruthGenerator):
             df_control_gt = df_frame_index.copy()
             df_control_gt = df_control_gt[["frame", "subject", "run"]]
 
+        oc = ["throttle_norm [0,1]", "roll_norm [-1,1]", "pitch_norm [-1,1]", "yaw_norm [-1,1]"]
+        c = ["throttle", "roll", "pitch", "yaw"]
         if os.path.exists(control_measurements_path):
             df_control_measurements = pd.read_csv(control_measurements_path)
+            df_control_measurements = df_control_measurements.rename(
+                {c: rc for c, rc in zip(oc, c)}, axis=1)
         else:
             df_control_measurements = df_frame_index.copy()
             df_control_measurements = df_control_measurements[["frame"]]
-            df_control_measurements.columns = ["Thrust"]
-            df_control_measurements["Thrust"] = np.nan
-            df_control_measurements["Roll"] = np.nan
-            df_control_measurements["Pitch"] = np.nan
-            df_control_measurements["Yaw"] = np.nan
+            df_control_measurements.columns = [c[0]]
+            df_control_measurements[c[0]] = np.nan
+            for col in c:
+                if col not in df_control_measurements.columns:
+                    df_control_measurements[col] = np.nan
 
         if self.__class__.NAME not in df_control_gt.columns:
             df_control_gt[self.__class__.NAME] = -1
-            df_control_measurements["Thrust"] = np.nan
-            df_control_measurements["Roll"] = np.nan
-            df_control_measurements["Pitch"] = np.nan
-            df_control_measurements["Yaw"] = np.nan
+            for col in c:
+                if col not in df_control_measurements.columns:
+                    df_control_measurements[col] = np.nan
 
         # in principle, need only subject and run to identify where to put the new info...
         # e.g. track name is more of a property to filter on...
         match_index = (df_control_gt["subject"] == subject) & (df_control_gt["run"] == run)
 
-        return df_control_gt, df_control_measurements, control_gt_path, control_measurements_path, match_index
+        return df_control_gt, df_control_measurements, control_gt_path, control_measurements_path, match_index, c, oc
 
     def compute_gt(self, run_dir):
         # get info about the current run
@@ -199,7 +202,7 @@ class DroneControlFrameMeanGT(GroundTruthGenerator):
         run = run_info["run"]
 
         # get the ground-truth info
-        df_control_gt, df_control_measurements, control_gt_path, control_measurements_path, match_index = \
+        df_control_gt, df_control_measurements, control_gt_path, control_measurements_path, match_index, c, oc = \
             self.get_gt_info(run_dir, subject, run)
 
         # define paths
@@ -211,24 +214,27 @@ class DroneControlFrameMeanGT(GroundTruthGenerator):
         df_screen = pd.read_csv(df_screen_path)
 
         # select only the necessary data from the gaze dataframe and compute the on-screen coordinates
-        df_drone = df_drone[["ts", "Throttle", "Roll", "Pitch", "Yaw"]]
+        df_drone = df_drone.rename({c: rc for c, rc in zip(oc, c)}, axis=1)
+        df_drone = df_drone[(["ts"] + c)]
         df_drone["frame"] = -1
 
         # filter by screen timestamps
         df_screen, df_drone = filter_by_screen_ts(df_screen, df_drone)
 
         # compute the mean measurement for each frame
-        df_drone = df_drone[["frame", "Throttle", "Roll", "Pitch", "Yaw"]]
+        df_drone = df_drone[(["frame"] + c)]
         df_drone = df_drone.groupby("frame").mean()
         df_drone["frame"] = df_drone.index
         df_drone = df_drone.reset_index(drop=True)
-        df_drone = df_drone[["frame", "Throttle", "Roll", "Pitch", "Yaw"]]
+        df_drone = df_drone[(["frame"] + c)]
 
         # add information about control GT being available to frame-wise screen info
         df_control_gt.loc[match_index, self.__class__.NAME] = df_screen["frame"].isin(df_drone["frame"]).astype(int).values
-        for _, row in tqdm(df_drone.iterrows(), disable=False, total=len(df_drone.index)):
-            df_control_measurements.loc[match_index & (df_control_gt["frame"] == row["frame"]),
-                              ["Throttle", "Roll", "Pitch", "Yaw"]] = row[["Throttle", "Roll", "Pitch", "Yaw"]].values
+        df_control_measurements_columns = df_control_measurements.copy()[c]
+        df_drone = df_drone.set_index("frame")
+        for (_, row), f in tqdm(zip(df_drone.iterrows(), df_drone.index), disable=False, total=len(df_drone.index)):
+            df_control_measurements_columns.iloc[match_index & (df_control_gt["frame"] == f)] = row.values
+        df_control_measurements[c] = df_control_measurements_columns[c]
 
         # save control gt to CSV with updated data
         df_control_gt.to_csv(control_gt_path, index=False)
@@ -255,19 +261,17 @@ class DroneStateFrameMean(GroundTruthGenerator):
             df_state = df_frame_index.copy()
             df_state = df_state[["frame", "subject", "run"]]
 
-        if "VelocityX" not in df_state.columns:
-            df_state["VelocityX"] = np.nan
-            df_state["VelocityY"] = np.nan
-            df_state["VelocityZ"] = np.nan
-            df_state["AngularX"] = np.nan
-            df_state["AngularY"] = np.nan
-            df_state["AngularZ"] = np.nan
+        columns = ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ", "DroneAccelerationX", "DroneAccelerationY",
+                   "DroneAccelerationZ", "DroneAngularX", "DroneAngularY", "DroneAngularZ"]
+        if columns[0] not in df_state.columns:
+            for col in columns:
+                df_state[col] = np.nan
 
         # in principle, need only subject and run to identify where to put the new info...
         # e.g. track name is more of a property to filter on...
         match_index = (df_state["subject"] == subject) & (df_state["run"] == run)
 
-        return df_state, state_path, match_index
+        return df_state, state_path, match_index, columns
 
     def compute_gt(self, run_dir):
         # get info about the current run
@@ -276,7 +280,7 @@ class DroneStateFrameMean(GroundTruthGenerator):
         run = run_info["run"]
 
         # get the ground-truth info
-        df_state, state_path, match_index = self.get_gt_info(run_dir, subject, run)
+        df_state, state_path, match_index, columns = self.get_gt_info(run_dir, subject, run)
 
         # define paths
         df_drone_path = os.path.join(run_dir, "drone.csv")
@@ -287,25 +291,25 @@ class DroneStateFrameMean(GroundTruthGenerator):
         df_screen = pd.read_csv(df_screen_path)
 
         # select only the necessary data from the gaze dataframe and compute the on-screen coordinates
-        df_drone = df_drone[["ts", "VelocityX", "VelocityY", "VelocityZ", "AngularX", "AngularY", "AngularZ"]]
+        df_drone = df_drone[(["ts"] + columns)]
         df_drone["frame"] = -1
 
         # filter by screen timestamps
         df_screen, df_drone = filter_by_screen_ts(df_screen, df_drone)
 
         # compute the mean measurement for each frame
-        df_drone = df_drone[["frame", "VelocityX", "VelocityY", "VelocityZ", "AngularX", "AngularY", "AngularZ"]]
+        df_drone = df_drone[(["frame"] + columns)]
         df_drone = df_drone.groupby("frame").mean()
         df_drone["frame"] = df_drone.index
         df_drone = df_drone.reset_index(drop=True)
-        df_drone = df_drone[["frame", "VelocityX", "VelocityY", "VelocityZ", "AngularX", "AngularY", "AngularZ"]]
+        df_drone = df_drone[(["frame"] + columns)]
 
         # add information about control GT being available to frame-wise screen info
-        df_state.loc[match_index, self.__class__.NAME] = df_screen["frame"].isin(df_drone["frame"]).astype(int).values
-        for _, row in tqdm(df_drone.iterrows(), disable=False, total=len(df_drone.index)):
-            df_state.loc[match_index & (df_state["frame"] == row["frame"]),
-                         ["VelocityX", "VelocityY", "VelocityZ", "AngularX", "AngularY", "AngularZ"]] \
-                = row[["VelocityX", "VelocityY", "VelocityZ", "AngularX", "AngularY", "AngularZ"]].values
+        df_state_columns = df_state.copy()[columns]
+        df_drone = df_drone.set_index("frame")
+        for (_, row), f in tqdm(zip(df_drone.iterrows(), df_drone.index), disable=False, total=len(df_drone.index)):
+            df_state_columns.iloc[match_index & (df_state["frame"] == f)] = row.values
+        df_state[columns] = df_state_columns[columns]
 
         # save control gt to CSV with updated data
         df_state.to_csv(state_path, index=False)

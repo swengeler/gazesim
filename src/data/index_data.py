@@ -1,7 +1,5 @@
 import os
-import re
 import cv2
-import numpy as np
 import pandas as pd
 
 from tqdm import tqdm
@@ -70,10 +68,13 @@ def add_gaze_measurement_available(data, df_screen_ts, df_gaze, **kwargs):
 
 
 def add_drone_measurement_available(data, df_screen_ts, df_drone, **kwargs):
+    df_drone["frame"] = -1
     df_screen_ts, df_drone = filter_by_screen_ts(df_screen_ts, df_drone)
-    gaze_measurement_available = df_screen_ts["frame"].isin(df_drone["frame"]).astype(int)
+    nan_frames = df_drone["frame"][df_drone["PositionX"].isna()].unique()
+    drone_measurement_available = df_screen_ts["frame"].isin(df_drone["frame"])
+    drone_measurement_available = (drone_measurement_available & ~df_screen_ts["frame"].isin(nan_frames)).astype(int)
 
-    data["drone_measurement_available"].extend(gaze_measurement_available)
+    data["drone_measurement_available"].extend(drone_measurement_available)
     return data
 
 
@@ -263,7 +264,7 @@ def append(args):
     #  => should be able to use df.update(other) for that
 
     # loop over the given properties that should be added
-    for run_dir in tqdm(iterate_directories(args.data_root, ["flat", "wave"])):
+    for run_dir in tqdm(iterate_directories(args.data_root, ["flat", "wave"])[:1]):
         # load relevant dataframes
         df_screen_ts = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
         df_gaze = pd.read_csv(os.path.join(run_dir, "gaze_on_surface.csv"))
@@ -288,10 +289,11 @@ def append(args):
         for prop in args.update:
             property_to_function[prop](**kwargs)
 
-    df_new_data = pd.DataFrame(data)
     df_data = pd.read_csv(os.path.join(args.data_root, "index", "frame_index.csv"))
-    df_data.update(df_new_data, overwrite=True)
-    df_data.to_csv(os.path.join(args.data_root, "index", "frame_index.csv"))
+    df_new_data = pd.DataFrame(data)
+    for col in df_new_data.columns:
+        df_data[col] = df_new_data[col]
+    df_data.to_csv(os.path.join(args.data_root, "index", "frame_index.csv"), index=False)
 
 
 if __name__ == "__main__":
