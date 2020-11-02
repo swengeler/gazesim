@@ -71,6 +71,9 @@ def handle_single_video(config, run_dir, gt_video_path):
     if "mean_mask" in config["output_mode"]:
         mean_video_writer.release()
 
+    print("Finished writing {} for '{}' to '{}'.".format(
+        " and ".join(config["output_mode"]), config["ground_truth_name"], run_dir))
+
 
 def main(config):
     for run_dir in iterate_directories(config["data_root"], config["track_name"]):
@@ -80,12 +83,14 @@ def main(config):
         # check if required file exists
         if os.path.exists(gt_video_path):
             handle_single_video(config, run_dir, gt_video_path)
+        else:
+            print("Skipping '{}' because no video for '{}' exists.".format(run_dir, config["ground_truth_name"]))
 
 
 def parse_config(args):
     config = vars(args)
     config["data_root"] = os.path.abspath(config["data_root"])
-    config["mean_mask_path"] = os.path.abspath(config["mean_mask_path"])
+    config["mean_mask_path"] = None if args.mean_mask_path is None else os.path.abspath(config["mean_mask_path"])
     config["mean_mask_name"] = ""
     if config["mean_mask_path"] is not None:
         config["mean_mask_name"] = os.path.splitext(os.path.basename(config["mean_mask_path"]))[0]
@@ -105,7 +110,7 @@ if __name__ == "__main__":
                         help="The name of the track.")
     parser.add_argument("-gtn", "--ground_truth_name", type=str, default="moving_window_frame_mean_gt",
                         help="The name of the ground-truth video.")
-    parser.add_argument("-om", "--output_mode", type=str, nargs="+", default="all",
+    parser.add_argument("-om", "--output_mode", type=str, nargs="+", default=["soft_mask", "hard_mask"],
                         choices=["all", "soft_mask", "hard_mask", "mean_mask"],
                         help="Which mask type to generate.")
     parser.add_argument("-l", "--soft_masking_lambda", type=float, default=0.2,
@@ -117,5 +122,5 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
 
     # main
-    main(arguments)
+    main(parse_config(arguments))
 
