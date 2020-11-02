@@ -4,9 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
-from pprint import pprint
 from matplotlib.widgets import Button
-from src.data.utils import iterate_directories
 
 
 def load_data(directory):
@@ -240,3 +238,5 @@ if __name__ == "__main__":
 
         print("Need to create image of all overlaid (valid) trajectories first.")
         plot_all_trajectories(ARGS, IMAGE_PATH)
+
+    main(ARGS, IMAGE_PATH)

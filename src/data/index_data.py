@@ -7,35 +7,13 @@ import pandas as pd
 from tqdm import tqdm
 from src.data.utils import iterate_directories, parse_run_info, filter_by_screen_ts
 
-"""
-data_root = os.getenv("GAZESIM_ROOT")
 
-same = []
-total_frames = 0
-for run_dir in iterate_directories(data_root, track_names=["flat", "wave"]):
-    # load the video and find out the number of frames
-    video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
-    w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
-
-    # load the screen_timestamps dataframe and compare #frames and #columns
-    df_screen = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
-
-    same.append(int(num_frames) == len(df_screen.index))
-    total_frames += int(num_frames)
-    print("{}\n#frames: {}\n#rows: {}\n".format(run_dir, int(num_frames), len(df_screen.index)))
-
-same = np.array(same)
-print("#same: {}/{}".format(same.sum(), len(same)))
-print("total #frames: {}".format(total_frames))
-"""
-
-
-def add_frames(data, df_screen_ts):
+def add_frames(data, df_screen_ts, **kwargs):
     data["frame"].extend(list(df_screen_ts["frame"].values))
     return data
 
 
-def add_subject(data, run_dir, num_frames):
+def add_subject(data, run_dir, num_frames, **kwargs):
     subject_number = parse_run_info(run_dir)["subject"]
     if subject_number is None:
         raise ValueError("Subject number could not be read for '{}'.".format(run_dir))
@@ -44,7 +22,7 @@ def add_subject(data, run_dir, num_frames):
     return data
 
 
-def add_run(data, run_dir, num_frames):
+def add_run(data, run_dir, num_frames, **kwargs):
     run_number = parse_run_info(run_dir)["run"]
     if run_number is None:
         raise ValueError("Run number could not be read for '{}'.".format(run_dir))
@@ -53,7 +31,7 @@ def add_run(data, run_dir, num_frames):
     return data
 
 
-def add_track_name(data, run_dir, num_frames):
+def add_track_name(data, run_dir, num_frames, **kwargs):
     track_name = parse_run_info(run_dir)["track_name"]
     if track_name is None:
         raise ValueError("Track name could not be read for '{}'.".format(run_dir))
@@ -62,7 +40,7 @@ def add_track_name(data, run_dir, num_frames):
     return data
 
 
-def add_rgb_available(data, run_dir, num_frames):
+def add_rgb_available(data, run_dir, num_frames, **kwargs):
     video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
     w, h = (video_capture.get(i) for i in range(3, 5))
 
@@ -75,7 +53,7 @@ def add_rgb_available(data, run_dir, num_frames):
     return data
 
 
-def add_gaze_measurement_available(data, df_screen_ts, df_gaze):
+def add_gaze_measurement_available(data, df_screen_ts, df_gaze, **kwargs):
     # TODO: eventually clear this up
     # the main question is whether we e.g. want to include a half-frame "buffer" at the start and end that
     # would count towards that frame... probably, but then the question is whether how the GT is actually
@@ -91,15 +69,15 @@ def add_gaze_measurement_available(data, df_screen_ts, df_gaze):
     return data
 
 
-def add_control_measurement_available(data, df_screen_ts, df_drone):
+def add_drone_measurement_available(data, df_screen_ts, df_drone, **kwargs):
     df_screen_ts, df_drone = filter_by_screen_ts(df_screen_ts, df_drone)
     gaze_measurement_available = df_screen_ts["frame"].isin(df_drone["frame"]).astype(int)
 
-    data["control_measurement_available"].extend(gaze_measurement_available)
+    data["drone_measurement_available"].extend(gaze_measurement_available)
     return data
 
 
-def add_lap_info(data, df_screen_ts, df_lap_info, df_trajectory):
+def add_lap_info(data, df_screen_ts, df_lap_info, df_trajectory, **kwargs):
     df_temp = df_screen_ts.copy()
     df_temp["valid_lap"] = -1
     df_temp["lap_index"] = -1
@@ -125,7 +103,7 @@ def add_lap_info(data, df_screen_ts, df_lap_info, df_trajectory):
     return data
 
 
-def add_turn_info(data, df_screen_ts, df_lap_info):
+def add_turn_info(data, df_screen_ts, df_lap_info, **kwargs):
     df_temp = df_screen_ts.copy()
     df_temp["left_turn"] = 0
     df_temp["right_turn"] = 0
@@ -134,8 +112,8 @@ def add_turn_info(data, df_screen_ts, df_lap_info):
 
     # TODO: for this to work properly, either need to implement some fancy stuff to
     #  "wrap around" for the right half or redefine laps to start and end in the middle
-    gates_list = [(1, 2, 3), (6, 7, 8), (0, 1, 2, 3, 4), (5, 6, 7, 8, 9)][:2]
-    label_list = ["left_turn", "right_turn", "left_half", "right_half"][:2]
+    gates_list = [(1, 2, 3), (6, 7, 8), (0, 1, 2, 3, 4), (5, 6, 7, 8, 9)]
+    label_list = ["left_turn", "right_turn", "left_half", "right_half"]
     for _, row in df_lap_info.iterrows():
         gate_id = [int(i) for i in row["gate_id"][1:-1].strip().split()]
         gate_ts = [float(i) for i in row["gate_timestamps"][1:-1].strip().split()]
@@ -143,10 +121,14 @@ def add_turn_info(data, df_screen_ts, df_lap_info):
         for turn_gates, turn_label in zip(gates_list, label_list):
             ts_low = None
             ts_high = None
-            for gid, gts in zip(gate_id, gate_ts):
-                if ts_low is None and turn_gates[0] <= gid <= turn_gates[1]:
+            for gid, gts in sorted(zip(gate_id, gate_ts), key=lambda x: x[1]):
+                # TODO: this is how it's done for turns, not halves => need to update it
+                if ts_low is None and gid in turn_gates[:-1]:
+                    # if the timestamp is not set yet and the gate is not the last, set it
                     ts_low = gts
-                if turn_gates[1] <= gid <= turn_gates[2]:
+                if gid in turn_gates[1:]:
+                    # if the gate id is equal to something in turn_gates[1:], then always update
+                    # (since the timestamp will be equal or higher)
                     ts_high = gts
             if ts_low is not None and ts_high is not None:
                 df_temp.loc[df_screen_ts["ts"].between(ts_low, ts_high), turn_label] = 1
@@ -158,7 +140,22 @@ def add_turn_info(data, df_screen_ts, df_lap_info):
     return data
 
 
-def main(args):
+def add_state_info(data, df_screen_ts, df_drone):
+    # TODO: should this even be in the index file? or should this be seen as "state_gt" or something like that?
+    #  => this also brings up the question of whether different control_gts should be in the same file
+    #     or whether their values should e.g. be in a separate file with their name (where the control_gt file
+    #     would have only the information about the availability of that GT type)
+    #  => in that case, this function would only add the information that state measurements are available to the
+    #     frame index and there could be a separate file (called simply state.csv) that holds the actual values
+    #  => I think this solution would be cleaner in the sense that frame_index.csv does not contain any continuous
+    #     variables, but only ones that categorise frames in some way
+
+    # TODO: maybe this should just be a part of the current add_control_measurement_available function
+    #  which could be renamed to add_drone_state_measurement_available
+    pass
+
+
+def create(args):
     # TODO: basically use the same loop as above and record all the stuff for each frame...
     #  1. (tight/loose) left/right turn?
     #  2. gaze_gt_available (based on gaze_on_surface.csv)
@@ -178,7 +175,7 @@ def main(args):
         "track_name": [],
         "rgb_available": [],
         "gaze_measurement_available": [],
-        "control_measurement_available": [],
+        "drone_measurement_available": [],
         "valid_lap": [],
         "lap_index": [],
         "expected_trajectory": [],
@@ -211,7 +208,7 @@ def main(args):
         # add information about whether the RGB video and the ground-truth types are available
         add_rgb_available(data, run_dir, num_frames)
         add_gaze_measurement_available(data, df_screen_ts, df_gaze)
-        add_control_measurement_available(data, df_screen_ts, df_drone)
+        add_drone_measurement_available(data, df_screen_ts, df_drone)
 
         # add information about the lap/trajectory as a whole
         add_lap_info(data, df_screen_ts, df_lap_info, df_trajectory)
@@ -232,6 +229,71 @@ def main(args):
     df_data.to_csv(os.path.join(index_dir, "frame_index.csv"), index=False)
 
 
+def append(args):
+    property_to_function = {
+        "frame": add_frames,
+        "subject": add_subject,
+        "run": add_run,
+        "track_name": add_track_name,
+        "rgb_available": add_rgb_available,
+        "gaze_measurement_available": add_gaze_measurement_available,
+        "drone_measurement_available": add_drone_measurement_available,
+        "lap_info": add_lap_info,
+        "turn_info": add_turn_info
+    }
+
+    property_to_columns = {
+        "frame": ["frame"],
+        "subject": ["subject"],
+        "run": ["run"],
+        "track_name": ["track_name"],
+        "rgb_available": ["rgb_available"],
+        "gaze_measurement_available": ["gaze_measurement_available"],
+        "drone_measurement_available": ["drone_measurement_available"],
+        "lap_info": ["valid_lap", "lap_index", "expected_trajectory"],
+        "turn_info": ["left_turn", "right_turn", "left_half", "right_half"]
+    }
+
+    # prepare the data dictionary
+    data = {p: [] for prop in args.update for p in property_to_columns[prop]}
+    # TODO: now we are still missing the actual columns that will be added
+    #  => could have another dictionary with these (e.g. velocity + angular velocity for drone state)
+
+    # TODO: also need to be able to update existing stuff (mostly left_half/right_half)
+    #  => should be able to use df.update(other) for that
+
+    # loop over the given properties that should be added
+    for run_dir in tqdm(iterate_directories(args.data_root, ["flat", "wave"])):
+        # load relevant dataframes
+        df_screen_ts = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
+        df_gaze = pd.read_csv(os.path.join(run_dir, "gaze_on_surface.csv"))
+        df_drone = pd.read_csv(os.path.join(run_dir, "drone.csv"))
+        df_lap_info = pd.read_csv(os.path.join(run_dir, "laptimes.csv"))
+        df_trajectory = None
+        if os.path.exists(os.path.join(run_dir, "expected_trajectory.csv")):
+            df_trajectory = pd.read_csv(os.path.join(run_dir, "expected_trajectory.csv"))
+
+        num_frames = len(df_screen_ts.index)
+
+        kwargs = {
+            "data": data,
+            "df_screen_ts": df_screen_ts,
+            "df_gaze": df_gaze,
+            "df_drone": df_drone,
+            "df_lap_info": df_lap_info,
+            "df_trajectory": df_trajectory,
+            "num_frames": num_frames
+        }
+
+        for prop in args.update:
+            property_to_function[prop](**kwargs)
+
+    df_new_data = pd.DataFrame(data)
+    df_data = pd.read_csv(os.path.join(args.data_root, "index", "frame_index.csv"))
+    df_data.update(df_new_data, overwrite=True)
+    df_data.to_csv(os.path.join(args.data_root, "index", "frame_index.csv"))
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -241,9 +303,14 @@ if __name__ == "__main__":
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
     PARSER.add_argument("-e", "--exclude", type=str, nargs="+", default=[],
                         help="Properties to exclude from indexing. NOTE: not implemented yet, might not be necessary.")
+    PARSER.add_argument("-u", "--update", type=str, nargs="*", default=[],
+                        help="Properties to update to the existing frame index with.")
 
     # parse the arguments
     ARGS = PARSER.parse_args()
 
     # main
-    main(ARGS)
+    if len(ARGS.update) == 0:
+        create(ARGS)
+    else:
+        append(ARGS)
