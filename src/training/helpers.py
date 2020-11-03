@@ -8,6 +8,16 @@ from src.models.resnet import ResNetRegressor
 from src.models.utils import image_log_softmax
 
 
+# TODO: really not sure that this should be here...
+def to_device(batch, device, make_batch=False):
+    for k in batch:
+        if torch.is_tensor(batch[k]):
+            if make_batch:
+                batch[k] = batch[k].unsqueeze(0)
+            batch[k] = batch[k].to(device)
+    return batch
+
+
 def resolve_model_class(model_name):
     return {
         "c3d": C3DRegressor,

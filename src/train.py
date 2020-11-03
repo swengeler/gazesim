@@ -6,15 +6,8 @@ from torch.utils.data import DataLoader
 
 from tqdm import tqdm
 from src.training.config import parse_config
-from src.training.helpers import resolve_model_class, resolve_dataset_class, resolve_optimiser_class
+from src.training.helpers import to_device, resolve_model_class, resolve_dataset_class, resolve_optimiser_class
 from src.training.helpers import resolve_losses, resolve_output_processing_func, resolve_logger_class
-
-
-def to_device(batch, device):
-    for k in batch:
-        if torch.is_tensor(batch[k]):
-            batch[k] = batch[k].to(device)
-    return batch
 
 
 def train(config):
@@ -85,8 +78,13 @@ def train(config):
 
                 # do validation if it should be done
                 if (global_step - epoch * len(training_set)) >= validation_check[validation_current]:
+                    disable = True
+                    if config["validation_frequency"] == 1:
+                        print("Validation for epoch {:03d}!".format(epoch))
+                        disable = False
+
                     model.eval()
-                    for val_batch_index, val_batch in tqdm(enumerate(validation_generator), disable=True):
+                    for val_batch_index, val_batch in tqdm(enumerate(validation_generator), disable=disable):
                         # transfer to GPU
                         val_batch = to_device(val_batch, device)
 

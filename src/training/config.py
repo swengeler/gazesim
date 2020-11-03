@@ -3,7 +3,6 @@ import json
 import torch
 
 from datetime import datetime
-from pprint import pprint
 from src.data.utils import resolve_split_index_path
 from src.training.helpers import resolve_dataset_name, resolve_resize_parameters, get_outputs, get_valid_losses, resolve_gt_name
 

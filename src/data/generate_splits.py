@@ -107,7 +107,7 @@ def generate_splits(data, config, return_data_index=False):
     else:
         # group by the specified columns and create index and strata for the resulting dataframe
         # group_by_columns = group_by_columns
-        grouped_data = data.groupby(group_by_columns[group_by_level]).count()["frame"]
+        grouped_data = data.groupby(group_by_columns[:group_by_level]).count()["frame"]
 
         index = np.arange(len(grouped_data.index))
         strata = np.array([idx[:stratification_level] for idx in grouped_data.index.values])

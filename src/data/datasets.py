@@ -9,6 +9,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 from src.data.utils import get_indexed_reader, resolve_split_index_path, run_info_to_path
+from src.data.constants import STATISTICS
 
 
 class ImageToAttentionMap(object):
@@ -70,11 +71,23 @@ class ImageToAttentionDataset(Dataset):
         # TODO: if there is no specific information for mean/std for a video, should default to something
         with open(config["split_config"] + "_info.json", "r") as f:
             split_index_info = json.load(f)
+        input_statistics = {}
+        for i in self.input_names:
+            if "mean" in split_index_info and "std" in split_index_info:
+                input_statistics[i] = {
+                    "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
+                    "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
+                }
+            else:
+                input_statistics[i] = {
+                    "mean": STATISTICS["mean"][i],
+                    "std": STATISTICS["std"][i]
+                }
         self.input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(config["resize"]),
             transforms.ToTensor(),
-            transforms.Normalize(split_index_info["mean"][i], split_index_info["std"][i])
+            transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
         ]) for i in self.input_names]
         self.output_transform = transforms.Compose([
             ImageToAttentionMap(),
@@ -112,8 +125,8 @@ class ImageToAttentionDataset(Dataset):
         output = self.video_readers[current_run_dir]["output_attention"][current_frame_index]
 
         # start constructing the output dictionary => keep the original frames in there
-        out = {"original": {f"input_image_{idx}": i.copy() for idx, i in enumerate(inputs)}}
-        out["original"]["output_attention"] = output.copy()
+        out = {"original": {f"input_image_{idx}": np.array(i.copy()) for idx, i in enumerate(inputs)}}
+        out["original"]["output_attention"] = np.array(output.copy())
 
         # apply transforms to the inputs and output
         for idx, i in enumerate(inputs):
@@ -149,11 +162,23 @@ class ImageToControlDataset(Dataset):
 
         with open(config["split_config"] + "_info.json", "r") as f:
             split_index_info = json.load(f)
+        input_statistics = {}
+        for i in self.input_names:
+            if "mean" in split_index_info and "std" in split_index_info:
+                input_statistics[i] = {
+                    "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
+                    "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
+                }
+            else:
+                input_statistics[i] = {
+                    "mean": STATISTICS["mean"][i],
+                    "std": STATISTICS["std"][i]
+                }
         self.input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(config["resize"]),
             transforms.ToTensor(),
-            transforms.Normalize(split_index_info["mean"][i], split_index_info["std"][i])
+            transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
         ]) for i in self.input_names]
 
         self.video_readers = {}
@@ -184,7 +209,7 @@ class ImageToControlDataset(Dataset):
         output = self.index[self.output_columns].iloc[item].values
 
         # start constructing the output dictionary => keep the original frames in there
-        out = {"original": {f"input_image_{idx}": i.copy() for idx, i in enumerate(inputs)}}
+        out = {"original": {f"input_image_{idx}": np.array(i.copy()) for idx, i in enumerate(inputs)}}
 
         # apply transforms to the inputs and output
         for idx, i in enumerate(inputs):
@@ -225,11 +250,23 @@ class ImageAndStateToControlDataset(Dataset):
 
         with open(config["split_config"] + "_info.json", "r") as f:
             split_index_info = json.load(f)
+        input_statistics = {}
+        for i in self.video_input_names:
+            if "mean" in split_index_info and "std" in split_index_info:
+                input_statistics[i] = {
+                    "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
+                    "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
+                }
+            else:
+                input_statistics[i] = {
+                    "mean": STATISTICS["mean"][i],
+                    "std": STATISTICS["std"][i]
+                }
         self.video_input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(config["resize"]),
             transforms.ToTensor(),
-            transforms.Normalize(split_index_info["mean"][i], split_index_info["std"][i])
+            transforms.Normalize(split_index_info[i]["mean"], split_index_info[i]["std"])
         ]) for i in self.video_input_names]
 
         self.video_readers = {}

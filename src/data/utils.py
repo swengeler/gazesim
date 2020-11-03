@@ -240,3 +240,16 @@ def filter_by_property(data, properties, property_keep_dict=None, add_to_propert
         data = data[data[p] == property_keep_dict[p]]
 
     return data
+
+
+def find_contiguous_sequences(data, new_index=False):
+    # find contiguous sequences of frames
+    sequences = []
+    frames = data["frame"]
+    index = np.arange(len(frames.index)) if new_index else frames.index
+    jumps = (frames - frames.shift()) != 1
+    frames = list(index[jumps]) + [index[-1] + 1]
+    for i, start_index in enumerate(frames[:-1]):
+        # note that the range is exclusive: [start_frame, end_frame)
+        sequences.append((start_index, frames[i + 1]))
+    return sequences

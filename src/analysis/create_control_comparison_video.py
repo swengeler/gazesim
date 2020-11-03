@@ -10,12 +10,105 @@ from tqdm import tqdm
 from src.models.utils import image_softmax
 from src.models.c3d import C3DRegressor
 from src.data.old_datasets import get_dataset
-from src.data.utils import filter_by_screen_ts, parse_run_info
+from src.data.utils import filter_by_screen_ts, parse_run_info, find_contiguous_sequences, run_info_to_path
+from src.training.config import parse_config as parse_train_config
+from src.training.helpers import to_device, resolve_model_class, resolve_dataset_class, resolve_optimiser_class
+from src.training.helpers import resolve_losses, resolve_output_processing_func, resolve_logger_class
 
 # TODO options for which "frames" to include
 # - include only those with GT given
 # - include only those on valid lap, expected trajectory, left/right turn etc.
 # - split non-adjacent sections into separately videos/clips (maybe a bit overkill?)
+
+# TODO: need new way to extract clips from index files, maybe:
+# - supply index file and only allow validation and test data (set which to take or both)
+# - if specified also filter by subject, run, lap
+# - extract clips using the existing function for that
+# - how do datasets have to be modified? => subindex?
+# - everything should be similarly flexible, based on config? model checkpoint?
+
+
+def create_frame(control_gt, control_prediction, input_images):
+    # plot in numpy and convert to opencv-compatible image
+    x = np.arange(len(control_gt))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(8, 6), dpi=100)
+    ax.bar(x - width / 2, control_gt, width, label='GT')
+    ax.bar(x + width / 2, control_prediction, width, label='pred')
+    ax.set_ylim(-1, 1)
+    ax.set_xticks(x)
+    ax.axhline(c="k", lw=0.2)
+    ax.legend()
+    fig.tight_layout()
+
+    fig.canvas.draw()
+    plot_image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+    plot_image = plot_image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+    # stack the frames/labels for the video
+    frame = np.hstack(input_images + [plot_image])
+    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+
+    return frame
+
+
+def test(config, train_config, frame_index, split_index, model):
+    # TODO: given experiment directory, load model
+
+    # TODO: when loading train_config, should replace data_root
+
+    # TODO: apply filter (can include split, subject, run I guess, not sure that lap would make sense)
+    #  => actually, if we wanted to just extract a single video for one lap, it would probably make sense...
+    # but if the default is that everything is used... then there is a bit of an issue for labeling complete sequences
+    # could either ignore that if it is the case, complain/skip if there is overlap in a single sequence or just
+    # use a more "rigorous" structure, where we always filter by split => probably the latter
+
+    # use GPU if possible
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda:{}".format(config["gpu"])
+                          if use_cuda and config["gpu"] < torch.cuda.device_count() else "cpu")
+
+    for split in config["split"]:
+        current_frame_index = frame_index.loc[split_index["split"] == split]
+        current_dataset = resolve_dataset_class(train_config["dataset_name"])(train_config, split=split)
+        sequences = find_contiguous_sequences(current_frame_index, new_index=True)
+
+        for start_index, end_index in sequences:
+            # TODO: still need the subject/run info to be able to write to file...
+            for index in range(start_index, end_index):
+                # read the current data sample
+                sample = to_device(current_dataset[index], device, make_batch=True)
+
+                # compute the loss
+                prediction = model(sample)
+                prediction = resolve_output_processing_func("output_control")(prediction["output_control"])
+                individual_losses = torch.nn.functional.mse_loss(prediction["output_control"],
+                                                                 sample["output_control"],
+                                                                 reduction="none")
+                # TODO: maybe plot the difference in some way as well...
+
+                # get the values as numpy arrays
+                control_gt = sample["output_control"].cpu().detach().numpy().reshape(-1)
+                control_prediction = prediction["output_control"].cpu().detach().numpy().reshape(-1)
+
+                # get the input images (for now there will only be one)
+                input_images = []
+                for key in sorted(sample["original"]):
+                    if key.startswith("input_image"):
+                        input_images.append(sample["original"][key])
+                # TODO: probably need to reshape for opencv?
+                input_images = [cv2.cvtColor(image, cv2.COLOR_RGB2BGR) for image in input_images]
+
+                # create the new frame and write it
+                frame = create_frame(control_gt, control_prediction, input_images)
+                for _ in range(config["slow_down_factor"]):
+                    # video_writer.write(new_frame)
+                    pass
+
+                # TODO: should clips from the same video be cut together?
+                #  (e.g. open one video writer at the start, close all at the end)
+                pass
 
 
 def handle_single_video(args, run_dir, frame_info_path):
