@@ -8,7 +8,7 @@ import torch
 from tqdm import tqdm
 from src.models.utils import image_softmax
 from src.models.resnet import ResNet18BaseModelSimple
-from src.data.datasets import get_dataset
+from src.data.old_datasets import get_dataset
 from src.data.utils import filter_by_screen_ts
 
 # TODO options for which "frames" to include

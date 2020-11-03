@@ -3,10 +3,12 @@ import json
 import re
 
 from datetime import datetime
-from src.data.new_datasets import ImageToControlDataset, ImageAndStateToControlDataset
+from src.training.loggers import ControlLogger
+from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset
 from src.data.utils import resolve_split_index_path
 from src.models.c3d import C3DRegressor
 from src.models.codevilla import Codevilla
+from src.models.utils import image_log_softmax
 
 
 def resolve_model_class(model_name):
@@ -59,6 +61,15 @@ def resolve_losses(losses):
     return {output: resolve_loss(loss) for output, loss in losses.items()}
 
 
+def resolve_output_processing_func(output_name):
+    # TODO: I think this should probably be removed and any of that sort of processing moved to the models
+    #  themselves or to the loggers (if it needs to be logged in a different format)
+    return {
+        "output_attention": image_log_softmax,
+        "output_control": lambda x: x
+    }[output_name]
+
+
 def resolve_dataset_name(model_name):
     return {
         "c3d": "StackedImageToControlDataset",
@@ -70,6 +81,13 @@ def resolve_dataset_class(dataset_name):
     return {
         "StackedImageToControlDataset": ImageToControlDataset,  # TODO: change this
         "ImageAndStateToControlDataset": ImageAndStateToControlDataset
+    }[dataset_name]
+
+
+def resolve_logger_class(dataset_name):
+    return {
+        "StackedImageToControlDataset": ControlLogger,
+        "ImageAndStateToControlDataset": ControlLogger
     }[dataset_name]
 
 

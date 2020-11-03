@@ -10,7 +10,7 @@ def handle_single_video(config, run_dir, gt_video_path):
     rgb_video_path = os.path.join(run_dir, "screen.mp4")
     hard_video_path = os.path.join(run_dir, "hard_mask_{}.mp4".format(config["ground_truth_name"]))
     soft_video_path = os.path.join(run_dir, "soft_mask_{}.mp4".format(config["ground_truth_name"]))
-    mean_video_path = os.path.join(run_dir, "mean_mask_{}.mp4".format(config["mean_mask_name"]))
+    mean_video_path = os.path.join(run_dir, "{}.mp4".format(config["mean_mask_name"]))
 
     # load the mean mask
     mean_mask = None

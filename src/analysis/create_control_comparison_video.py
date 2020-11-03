@@ -9,7 +9,7 @@ import torch
 from tqdm import tqdm
 from src.models.utils import image_softmax
 from src.models.c3d import C3DRegressor
-from src.data.datasets import get_dataset
+from src.data.old_datasets import get_dataset
 from src.data.utils import filter_by_screen_ts, parse_run_info
 
 # TODO options for which "frames" to include

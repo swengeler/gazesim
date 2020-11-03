@@ -30,3 +30,9 @@ def image_softmax(tensor):
 
 def image_log_softmax(tensor):
     return _image_apply_function(tensor, F.log_softmax, dim=-1)
+
+
+def convert_attention_to_image(attention):
+    # divide by the maximum
+    maximum = image_max(attention).unsqueeze(-1).unsqueeze(-1)
+    return attention / maximum

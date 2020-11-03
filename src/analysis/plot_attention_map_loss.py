@@ -8,7 +8,7 @@ import torch
 from tqdm import tqdm
 from src.models.utils import image_log_softmax, image_softmax
 from src.models.resnet import ResNet18BaseModelSimple
-from src.data.datasets import get_dataset
+from src.data.old_datasets import get_dataset
 
 # TODO: plot the loss for each frame (where GT is available) on a plot with the x-axis being frames
 # mark whether parts are left/right turn, whether it is a valid lap, whether it follows the expected trajectory

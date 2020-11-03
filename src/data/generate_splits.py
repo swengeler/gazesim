@@ -72,7 +72,17 @@ def generate_splits(data, config, return_data_index=False):
         config["train_size"] /= split_size_sum
         config["val_size"] /= split_size_sum
         config["test_size"] /= split_size_sum
-    rel_val_size = config["val_size"] / (config["val_size"] + config["test_size"])
+    rel_val_size = config["val_size"]
+    if (config["val_size"] + config["test_size"]) != 0.0:
+        rel_val_size = config["val_size"] / (config["val_size"] + config["test_size"])
+
+    if config["train_size"] == 1.0:
+        train_index = np.arange(len(data.index))
+        val_index = np.array([], dtype=int)
+        test_index = np.array([], dtype=int)
+        if return_data_index:
+            return train_index, val_index, test_index, data.index.values
+        return train_index, val_index, test_index
 
     group_by_columns = ["track_index", "subject", "run", "lap_index"]
     if stratification_level == -1:
