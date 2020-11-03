@@ -65,7 +65,7 @@ class ControlLogger(Logger):
 
     def training_step_end(self, global_step, loss, batch, predictions):
         # log total loss
-        self.tb_writer.add_scalar("loss/train/total", loss, global_step)
+        self.tb_writer.add_scalar("loss/train/total", loss.item(), global_step)
 
         # determine individual losses
         individual_losses = torch.nn.functional.mse_loss(predictions["output_control"],
@@ -98,25 +98,25 @@ class ControlLogger(Logger):
 
         # accumulate total loss
         if self.total_loss_val is None:
-            self.total_loss_val = torch.zeros_like(loss, device=loss.device)
+            self.total_loss_val = torch.zeros_like(loss)
         self.total_loss_val += loss
 
         # accumulate individual losses
         if self.individual_losses_val is None:
-            self.individual_losses_val = torch.zeros_like(individual_losses, device=individual_losses.device)
+            self.individual_losses_val = torch.zeros_like(individual_losses)
         self.individual_losses_val += individual_losses
 
     def validation_epoch_end(self, global_step, epoch, model, optimiser):
         # log total loss
-        self.tb_writer.add_scalar("loss/val/total", self.total_loss_val, global_step)
+        self.tb_writer.add_scalar("loss/val/total", self.total_loss_val.item(), global_step)
 
         # log individual losses
         for n, l in zip(self.control_names, self.individual_losses_val):
             self.tb_writer.add_scalar(f"loss/val/{n}", l, global_step)
 
         # reset the loss accumulators
-        self.total_loss_val = torch.zeros_like(self.total_loss_val, device=self.total_loss_val.device)
-        self.individual_losses_val = torch.zeros_like(self.individual_losses_val, device=self.individual_losses_val.device)
+        self.total_loss_val = torch.zeros_like(self.total_loss_val)
+        self.individual_losses_val = torch.zeros_like(self.individual_losses_val)
 
 
 class AttentionLogger(Logger):

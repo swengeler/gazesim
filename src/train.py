@@ -80,8 +80,8 @@ def train(config):
                 global_step += batch[sorted(batch.keys())[0]].shape[0]
 
                 # log at the end of each training step (each batch)
-                scalar_loss = loss.item()
-                logger.training_step_end(global_step, scalar_loss, batch, predictions)
+                # scalar_loss = loss.item()
+                logger.training_step_end(global_step, loss, batch, predictions)
 
                 # do validation if it should be done
                 if (global_step - epoch * len(training_set)) >= validation_check[validation_current]:
@@ -102,8 +102,8 @@ def train(config):
                                 val_loss += current_loss
 
                         # tracking the loss in the logger
-                        val_scalar_loss = val_loss.item()
-                        logger.validation_step_end(global_step, val_scalar_loss, val_batch, predictions)
+                        # val_scalar_loss = val_loss.item()
+                        logger.validation_step_end(global_step, val_loss, val_batch, predictions)
 
                     # log after the complete pass over the validation set
                     logger.validation_epoch_end(global_step, epoch, model, optimiser)
