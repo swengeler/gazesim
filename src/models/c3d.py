@@ -11,7 +11,7 @@ class C3DRegressor(nn.Module):
     (although identical ones can be found in other GitHub repositories; this seems to be the earliest I could find).
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, config=None):
         super().__init__()
 
         self.conv1 = nn.Conv3d(3, 64, kernel_size=(3, 3, 3), padding=(1, 1, 1))
