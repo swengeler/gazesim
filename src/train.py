@@ -140,7 +140,8 @@ if __name__ == "__main__":
                         help="Config file to load parameters from.")
 
     # arguments related to the model
-    parser.add_argument("-m", "--model_name", type=str, default="codevilla", choices=["codevilla", "c3d"],
+    parser.add_argument("-m", "--model_name", type=str, default="codevilla",
+                        choices=["codevilla", "c3d", "codevilla300", "resnet"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,
                         help="Path to load a model checkpoint from (including information about the "

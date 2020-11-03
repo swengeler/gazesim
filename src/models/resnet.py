@@ -190,11 +190,44 @@ class ResNet18DualBranchRegressor(nn.Module):
 
         return x
 
-# TODO: create some more architectures to try out for predicting control inputs
-# - only RGB input (flatten after "feature extractor") => different sizes
-# - RGB and masked input with early/late fusion
-# - only RGB input with attention map prediction as auxiliary task => split after "feature extractor"
-# - maybe try out using BasicBlocks in the upsampling part of the ResNet for attention prediction as well
+
+class ResNetRegressor(nn.Module):
+
+    def __init__(self, config=None):
+        super().__init__()
+
+        # defining the feature-extracting CNN using VGG16 layers as a basis
+        resnet18 = models.resnet18(True)
+        modules = list(resnet18.children())[:7]
+
+        self.features = nn.Sequential(*modules)
+        # shape will be [-1, 256, 19, 25] after this with module_transfer_depth 7 and input height 300
+
+        # pooling layer, using the same as ResNet for now
+        self.pooling = nn.AdaptiveAvgPool2d((1, 1))
+
+        # state "transformation" layer
+        self.state = nn.Linear(9, 256)
+
+        # defining the upscaling layers to get out the original image size again
+        self.regressor = nn.Sequential(
+            nn.Linear(512, 4),
+            ControlActivationLayer()
+        )
+
+    def forward(self, x):
+        image_x = self.features(x["input_image_0"])
+        image_x = self.pooling(image_x)
+        image_x = image_x.reshape(image_x.size(0), -1)
+
+        state_x = self.state(x["input_state"])
+
+        combined_x = torch.cat([image_x, state_x], dim=-1)
+
+        probabilities = self.regressor(combined_x)
+
+        out = {"output_control": probabilities}
+        return out
 
 
 if __name__ == "__main__":
