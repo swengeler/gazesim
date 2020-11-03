@@ -62,6 +62,7 @@ class ControlLogger(Logger):
         self.control_names = dataset.output_columns
         self.total_loss_val = None
         self.individual_losses_val = None
+        self.counter_val = 0
 
     def training_step_end(self, global_step, loss, batch, predictions):
         # log total loss
@@ -106,17 +107,20 @@ class ControlLogger(Logger):
             self.individual_losses_val = torch.zeros_like(individual_losses)
         self.individual_losses_val += individual_losses
 
+        self.counter_val += 1
+
     def validation_epoch_end(self, global_step, epoch, model, optimiser):
         # log total loss
-        self.tb_writer.add_scalar("loss/val/total", self.total_loss_val.item(), global_step)
+        self.tb_writer.add_scalar("loss/val/total", self.total_loss_val.item() / self.counter_val, global_step)
 
         # log individual losses
         for n, l in zip(self.control_names, self.individual_losses_val):
-            self.tb_writer.add_scalar(f"loss/val/{n}", l, global_step)
+            self.tb_writer.add_scalar(f"loss/val/{n}", l / self.counter_val, global_step)
 
         # reset the loss accumulators
         self.total_loss_val = torch.zeros_like(self.total_loss_val)
         self.individual_losses_val = torch.zeros_like(self.individual_losses_val)
+        self.counter_val = 0
 
 
 class AttentionLogger(Logger):

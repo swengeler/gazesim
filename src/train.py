@@ -103,7 +103,7 @@ def train(config):
 
                         # tracking the loss in the logger
                         # val_scalar_loss = val_loss.item()
-                        logger.validation_step_end(global_step, val_loss, val_batch, predictions)
+                        logger.validation_step_end(global_step, val_loss, val_batch, val_predictions)
 
                     # log after the complete pass over the validation set
                     logger.validation_epoch_end(global_step, epoch, model, optimiser)
