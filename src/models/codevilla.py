@@ -84,17 +84,57 @@ class Codevilla(nn.Module):
         return out
 
 
+class Codevilla300(Codevilla):
+
+    def __init__(self, config=None):
+        super().__init__(config)
+
+        self.image_conv_8 = Codevilla.conv_block(in_channels=256, out_channels=512, kernel_size=3, stride=2, padding=0)
+        self.image_conv_9 = Codevilla.conv_block(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=0)
+
+        self.image_fc_0 = Codevilla.fc_block(14336, 512)
+
+    def forward(self, x):
+        image_x = self.image_conv_0(x["input_image_0"])
+        image_x = self.image_conv_1(image_x)
+        image_x = self.image_conv_2(image_x)
+        image_x = self.image_conv_3(image_x)
+        image_x = self.image_conv_4(image_x)
+        image_x = self.image_conv_5(image_x)
+        image_x = self.image_conv_6(image_x)
+        image_x = self.image_conv_7(image_x)
+        image_x = self.image_conv_8(image_x)
+        image_x = self.image_conv_9(image_x)
+        image_x = image_x.reshape(image_x.size(0), -1)
+
+        image_x = self.image_fc_0(image_x)
+        image_x = self.image_fc_1(image_x)
+
+        state_x = self.state_fc_0(x["input_state"])
+        state_x = self.state_fc_1(state_x)
+
+        combined_x = torch.cat([image_x, state_x], dim=-1)
+
+        control_x = self.control_fc_0(combined_x)
+        control_x = self.control_fc_1(control_x)
+        logits = self.control_fc_2(control_x)
+        probabilities = self.final_activation(logits)
+
+        out = {"output_control": probabilities}
+        return out
+
+
 if __name__ == "__main__":
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda:0" if use_cuda else "cpu")
 
-    image = torch.zeros((1, 3, 150, 200)).to(device)
+    image = torch.zeros((1, 3, 300, 400)).to(device)
     state = torch.zeros((1, 9)).to(device)
     X = {
         "input_image_0": image,
         "input_state": state
     }
 
-    net = Codevilla().to(device)
+    net = Codevilla300().to(device)
     result = net(X)
     print(result)

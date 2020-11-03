@@ -3,14 +3,15 @@ import torch
 from src.training.loggers import ControlLogger
 from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset
 from src.models.c3d import C3DRegressor
-from src.models.codevilla import Codevilla
+from src.models.codevilla import Codevilla, Codevilla300
 from src.models.utils import image_log_softmax
 
 
 def resolve_model_class(model_name):
     return {
         "c3d": C3DRegressor,
-        "codevilla": Codevilla
+        "codevilla": Codevilla,
+        "codevilla300": Codevilla300
     }[model_name]
 
 
@@ -69,7 +70,8 @@ def resolve_output_processing_func(output_name):
 def resolve_dataset_name(model_name):
     return {
         "c3d": "StackedImageToControlDataset",
-        "codevilla": "ImageAndStateToControlDataset"
+        "codevilla": "ImageAndStateToControlDataset",
+        "codevilla300": "ImageAndStateToControlDataset"
     }[model_name]
 
 
@@ -91,7 +93,8 @@ def resolve_resize_parameters(model_name):
     # TODO: might be better to have something more flexible to experiment with different sizes?
     return {
         "c3d": (122, 122),
-        "codevilla": 150
+        "codevilla": 150,
+        "codevilla300": 300
     }[model_name]
 
 
