@@ -5,8 +5,9 @@ import torch
 from torch.utils.data import DataLoader
 
 from tqdm import tqdm
-from src.training.config import parse_config, resolve_model_class, resolve_dataset_class, resolve_optimiser_class
-from src.training.config import resolve_losses, resolve_output_processing_func, resolve_logger_class
+from src.training.config import parse_config
+from src.training.helpers import resolve_model_class, resolve_dataset_class, resolve_optimiser_class
+from src.training.helpers import resolve_losses, resolve_output_processing_func, resolve_logger_class
 
 
 def to_device(batch, device):
@@ -37,8 +38,7 @@ def train(config):
     model = model.to(device)
 
     # define the optimiser
-    optimiser = resolve_optimiser_class(config["optimiser"])(model.parameters(), lr=config["learning_rate"],
-                                                             weight_decay=config["weight_decay"])
+    optimiser = resolve_optimiser_class(config["optimiser"])(model.parameters(), lr=config["learning_rate"])
 
     # define the loss function(s)
     loss_functions = resolve_losses(config["losses"])
@@ -128,10 +128,16 @@ if __name__ == "__main__":
                         help="The split configuration/index to get information about the division into training "
                              "and validation (and test) data from. Can either be the path to a file or an index "
                              "(will search in $DATA_ROOT/splits/).")
-    parser.add_argument("-ivn", "--input_video_names", type=str, default="screen", nargs="+",
+    parser.add_argument("-ivn", "--input_video_names", type=str, nargs="+", default=["screen"],
                         choices=["screen", "hard_mask_moving_window_mean_frame_gt",
                                  "soft_mask_moving_window_mean_frame_gt"],
                         help="The (file) name(s) for the video(s) to use as input.")
+    parser.add_argument("-gtn", "--ground_truth_name", type=str, default="moving_window_mean_frame_gt",
+                        choices=["screen", "hard_mask_moving_window_mean_frame_gt",
+                                 "soft_mask_moving_window_mean_frame_gt"],
+                        help="The (file) name(s) for the video(s) to use as input.")
+    parser.add_argument("-c", "--config_file", type=str,
+                        help="Config file to load parameters from.")
 
     # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str, default="codevilla", choices=["codevilla", "c3d"],
@@ -153,7 +159,7 @@ if __name__ == "__main__":
                         help="The optimiser to use.")
     parser.add_argument("-lr", "--learning_rate", type=float, default=0.0001,
                         help="The learning rate to start with.")
-    parser.add_argument("-l", "--losses", type=str, nargs="+", default="mse",
+    parser.add_argument("-l", "--losses", type=str, nargs="+", default=["mse"],
                         help="The loss to use. Depends on the model architecture and what kinds of outputs "
                              "(and how many) it has. For now only one loss can be specified (no architecture "
                              "with multiple outputs/losses). If the wrong loss is supplied, it will be changed "

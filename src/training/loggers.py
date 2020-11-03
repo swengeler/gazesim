@@ -1,8 +1,21 @@
 import os
+import json
 import torch
 
 from torch.utils.tensorboard import SummaryWriter
-from src.training.config import save_config
+
+
+def save_config(config, config_save_path):
+    # remove those entries that cannot be saved with json
+    excluded = ["model_info"]
+    config_to_save = {}
+    for k in config:
+        if k not in excluded:
+            config_to_save[k] = config[k]
+
+    # save the config
+    with open(config_save_path, "w") as f:
+        json.dump(config_to_save, f)
 
 
 class Logger:

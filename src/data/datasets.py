@@ -67,18 +67,19 @@ class ImageToAttentionDataset(Dataset):
         #     at some point (which is not conceptually correct I think), then this would be an option to make
         #     things more flexible (without having to generate splits in advance as well)
 
+        # TODO: if there is no specific information for mean/std for a video, should default to something
         with open(config["split_config"] + "_info.json", "r") as f:
             split_index_info = json.load(f)
         self.input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
-            transforms.Resize(config["resize_height"]),
+            transforms.Resize(config["resize"]),
             transforms.ToTensor(),
             transforms.Normalize(split_index_info["mean"][i], split_index_info["std"][i])
         ]) for i in self.input_names]
         self.output_transform = transforms.Compose([
             ImageToAttentionMap(),
             transforms.ToPILImage(),
-            transforms.Resize(config["resize_height"]),
+            transforms.Resize(config["resize"]),
             transforms.ToTensor(),
             MakeValidDistribution()
         ])
@@ -150,7 +151,7 @@ class ImageToControlDataset(Dataset):
             split_index_info = json.load(f)
         self.input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
-            transforms.Resize(config["resize_height"]),
+            transforms.Resize(config["resize"]),
             transforms.ToTensor(),
             transforms.Normalize(split_index_info["mean"][i], split_index_info["std"][i])
         ]) for i in self.input_names]
@@ -226,7 +227,7 @@ class ImageAndStateToControlDataset(Dataset):
             split_index_info = json.load(f)
         self.video_input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
-            transforms.Resize(config["resize_height"]),
+            transforms.Resize(config["resize"]),
             transforms.ToTensor(),
             transforms.Normalize(split_index_info["mean"][i], split_index_info["std"][i])
         ]) for i in self.video_input_names]
@@ -262,7 +263,7 @@ class ImageAndStateToControlDataset(Dataset):
         output = self.index[self.output_columns].iloc[item].values
 
         # start constructing the output dictionary => keep the original frames in there
-        out = {"original": {f"input_image_{idx}": i.copy() for idx, i in enumerate(video_inputs)}}
+        out = {"original": {f"input_image_{idx}": np.array(i.copy()) for idx, i in enumerate(video_inputs)}}
 
         # apply transforms to the inputs and output
         for idx, i in enumerate(video_inputs):
@@ -285,7 +286,7 @@ if __name__ == "__main__":
         "input_video_names": ["screen"],
         "ground_truth_name": "drone_control_frame_mean_gt",
         "drone_state_names": ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ"],
-        "resize_height": 300,
+        "resize": 300,
         "split_config": 0
     }
 
