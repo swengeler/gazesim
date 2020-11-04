@@ -1,8 +1,10 @@
 import os
 import re
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.style as style
 import cv2
 import torch
 
@@ -10,7 +12,7 @@ from tqdm import tqdm
 from src.models.utils import image_softmax
 from src.models.c3d import C3DRegressor
 from src.data.old_datasets import get_dataset
-from src.data.utils import filter_by_screen_ts, parse_run_info, find_contiguous_sequences, run_info_to_path
+from src.data.utils import parse_run_info, find_contiguous_sequences, resolve_split_index_path, run_info_to_path
 from src.training.config import parse_config as parse_train_config
 from src.training.helpers import to_device, resolve_model_class, resolve_dataset_class, resolve_optimiser_class
 from src.training.helpers import resolve_losses, resolve_output_processing_func, resolve_logger_class
@@ -26,21 +28,26 @@ from src.training.helpers import resolve_losses, resolve_output_processing_func,
 # - extract clips using the existing function for that
 # - how do datasets have to be modified? => subindex?
 # - everything should be similarly flexible, based on config? model checkpoint?
+style.use("ggplot")
 
 
-def create_frame(control_gt, control_prediction, input_images):
+def create_frame(fig, ax, control_gt, control_prediction, input_images):
     # plot in numpy and convert to opencv-compatible image
+    error = control_gt - control_prediction
     x = np.arange(len(control_gt))
-    width = 0.35
+    x_labels = ["throttle", "roll", "pitch", "yaw"]
+    width = 0.3
 
-    fig, ax = plt.subplots(figsize=(8, 6), dpi=100)
-    ax.bar(x - width / 2, control_gt, width, label='GT')
-    ax.bar(x + width / 2, control_prediction, width, label='pred')
+    ax.bar(x - width, control_gt, width, label="GT", color="#55a868")
+    ax.bar(x, control_prediction, width, label="pred", color="#4c72b0")
+    ax.bar(x + width, error, width, label="error", color="#c44e52")
     ax.set_ylim(-1, 1)
+    # ax.set_xlim(x[0] - 2 * width, x[-1] + 2 * width)
     ax.set_xticks(x)
+    ax.set_xticklabels(x_labels)
     ax.axhline(c="k", lw=0.2)
     ax.legend()
-    fig.tight_layout()
+    # fig.tight_layout()
 
     fig.canvas.draw()
     plot_image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
@@ -50,11 +57,44 @@ def create_frame(control_gt, control_prediction, input_images):
     frame = np.hstack(input_images + [plot_image])
     frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
+    plt.cla()
+
     return frame
 
 
-def test(config, train_config, frame_index, split_index, model):
-    # TODO: given experiment directory, load model
+def test(config):
+    # load frame_index and split_index
+    frame_index = pd.read_csv(os.path.join(config["data_root"], "index", "frame_index.csv"))
+    split_index = pd.read_csv(config["split_config"] + ".csv")
+    # TODO: maybe check that the split index actually contains data that can be used properly
+
+    # use GPU if possible
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda:{}".format(config["gpu"])
+                          if use_cuda and config["gpu"] < torch.cuda.device_count() else "cpu")
+
+    # define paths
+    log_dir = os.path.abspath(os.path.join(os.path.dirname(config["model_load_path"]), os.pardir))
+    save_dir = os.path.join(log_dir, "visualisations")
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    config_path = os.path.join(log_dir, "config.json")
+
+    # load the config
+    with open(config_path, "r") as f:
+        train_config = json.load(f)
+    train_config["data_root"] = config["data_root"]
+    train_config["gpu"] = config["gpu"]
+    train_config["model_load_path"] = config["model_load_path"]
+    train_config["split_config"] = config["split_config"]
+    train_config = parse_train_config(train_config)
+
+    # load the model
+    model_info = train_config["model_info"]
+    model = resolve_model_class(train_config["model_name"])(train_config)
+    model.load_state_dict(model_info["model_state_dict"])
+    model = model.to(device)
+    model.eval()
 
     # TODO: when loading train_config, should replace data_root
 
@@ -64,28 +104,53 @@ def test(config, train_config, frame_index, split_index, model):
     # could either ignore that if it is the case, complain/skip if there is overlap in a single sequence or just
     # use a more "rigorous" structure, where we always filter by split => probably the latter
 
-    # use GPU if possible
-    use_cuda = torch.cuda.is_available()
-    device = torch.device("cuda:{}".format(config["gpu"])
-                          if use_cuda and config["gpu"] < torch.cuda.device_count() else "cpu")
-
+    fig, ax = plt.subplots(figsize=(8, 6), dpi=100)
     for split in config["split"]:
         current_frame_index = frame_index.loc[split_index["split"] == split]
         current_dataset = resolve_dataset_class(train_config["dataset_name"])(train_config, split=split)
         sequences = find_contiguous_sequences(current_frame_index, new_index=True)
 
-        for start_index, end_index in sequences:
-            # TODO: still need the subject/run info to be able to write to file...
-            for index in range(start_index, end_index):
+        video_writer_dict = {}
+        # TODO: maybe would be better to additionally sort by subject/run somehow and take care of all of the
+        #  sequences for an individual run_dir at once
+        run_dirs = [run_info_to_path(current_frame_index["subject"].iloc[si],
+                                     current_frame_index["run"].iloc[si],
+                                     current_frame_index["track_name"].iloc[si])
+                    for si, _ in sequences]
+        run_dir = run_dirs[0]
+        for (start_index, end_index), current_run_dir in tqdm(zip(sequences, run_dirs), disable=False):
+            # TODO: can't use frame_index here (which has the original indexing)
+            """
+            new_run_dir = run_info_to_path(current_frame_index["subject"].iloc[start_index],
+                                           current_frame_index["run"].iloc[start_index],
+                                           current_frame_index["track_name"].iloc[start_index])
+            """
+            if current_run_dir != run_dir:
+                video_writer_dict[run_dir].release()
+                run_dir = current_run_dir
+
+            if run_dir not in video_writer_dict:
+                video_dir = os.path.join(save_dir, run_dir)
+                if not os.path.exists(video_dir):
+                    os.makedirs(video_dir)
+                video_capture = cv2.VideoCapture(os.path.join(config["data_root"], run_dir, "screen.mp4"))
+                fps, fourcc = (video_capture.get(i) for i in range(5, 7))
+                video_name = f"control_comparison_{split}.mp4"
+                video_writer = cv2.VideoWriter(os.path.join(video_dir, video_name), int(fourcc), fps, (1600, 600), True)
+                video_writer_dict[run_dir] = video_writer
+
+            for index in tqdm(range(start_index, end_index), disable=True):
                 # read the current data sample
                 sample = to_device(current_dataset[index], device, make_batch=True)
 
                 # compute the loss
                 prediction = model(sample)
-                prediction = resolve_output_processing_func("output_control")(prediction["output_control"])
+                prediction["output_control"] = resolve_output_processing_func("output_control")(prediction["output_control"])
+                """
                 individual_losses = torch.nn.functional.mse_loss(prediction["output_control"],
                                                                  sample["output_control"],
                                                                  reduction="none")
+                """
                 # TODO: maybe plot the difference in some way as well...
 
                 # get the values as numpy arrays
@@ -97,18 +162,14 @@ def test(config, train_config, frame_index, split_index, model):
                 for key in sorted(sample["original"]):
                     if key.startswith("input_image"):
                         input_images.append(sample["original"][key])
-                # TODO: probably need to reshape for opencv?
-                input_images = [cv2.cvtColor(image, cv2.COLOR_RGB2BGR) for image in input_images]
 
                 # create the new frame and write it
-                frame = create_frame(control_gt, control_prediction, input_images)
+                frame = create_frame(fig, ax, control_gt, control_prediction, input_images)
                 for _ in range(config["slow_down_factor"]):
-                    # video_writer.write(new_frame)
-                    pass
+                    video_writer_dict[run_dir].write(frame)
 
-                # TODO: should clips from the same video be cut together?
-                #  (e.g. open one video writer at the start, close all at the end)
-                pass
+        for _, vr in video_writer_dict.items():
+            vr.release()
 
 
 def handle_single_video(args, run_dir, frame_info_path):
@@ -270,6 +331,12 @@ def main(args):
                         handle_single_run(args, run_dir)
 
 
+def parse_config(args):
+    config = vars(args)
+    config["split_config"] = resolve_split_index_path(config["split_config"], config["data_root"])
+    return config
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -277,8 +344,14 @@ if __name__ == "__main__":
 
     parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    parser.add_argument("-m", "--model_path", type=str, default=None,
+    parser.add_argument("-m", "--model_load_path", type=str, default=None,
                         help="The path to the model checkpoint to use for computing the predictions.")
+    parser.add_argument("-s", "--split", type=str, nargs="+", default=["val"], choices=["train", "val", "test"],
+                        help="Splits for which to create videos.")
+    parser.add_argument("-sc", "--split_config", type=str, default=0,
+                        help="TODO.")
+    parser.add_argument("-g", "--gpu", type=int, default=0,
+                        help="The GPU to use.")
     parser.add_argument("-f", "--filter", type=str, default=None, choices=["turn_left", "turn_right"],
                         help="'Property' by which to filter frames (only left/right turn for now).")
     parser.add_argument("-tn", "--track_name", type=str, default="flat",
@@ -297,5 +370,6 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
 
     # main
-    main(arguments)
+    # main(arguments)
+    test(parse_config(arguments))
 

@@ -266,7 +266,7 @@ class ImageAndStateToControlDataset(Dataset):
             transforms.ToPILImage(),
             transforms.Resize(config["resize"]),
             transforms.ToTensor(),
-            transforms.Normalize(split_index_info[i]["mean"], split_index_info[i]["std"])
+            transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
         ]) for i in self.video_input_names]
 
         self.video_readers = {}

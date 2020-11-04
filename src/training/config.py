@@ -8,11 +8,11 @@ from src.training.helpers import resolve_dataset_name, resolve_resize_parameters
 
 
 def parse_config(args):
-    config = vars(args)
+    config = args if isinstance(args, dict) else vars(args)
     if config["config_file"] is not None:
         # load the config file
         # TODO: should there be something similar to the split index files going on, i.e. different configs
-        with open(args.config_file, "r") as f:
+        with open(config["config_file"], "r") as f:
             loaded_config = json.load(f)
 
         # get the default values that may not be specified in the loaded config
