@@ -230,6 +230,58 @@ class ResNetStateRegressor(nn.Module):
         return out
 
 
+class ResNetStateLargerRegressor(nn.Module):
+
+    def __init__(self, config=None):
+        super().__init__()
+
+        # defining the feature-extracting CNN using VGG16 layers as a basis
+        resnet18 = models.resnet18(True)
+        modules = list(resnet18.children())[:7]
+
+        self.features = nn.Sequential(*modules)
+        self.downsample = nn.Conv2d(256, 256, 3, stride=2)
+        # shape will be [-1, 256, 19, 25] after this with module_transfer_depth 7 and input height 300
+
+        # pooling layer, using the same as ResNet for now
+        # self.pooling = nn.AdaptiveAvgPool2d((1, 1))
+        self.image_fc_0 = nn.Linear(6144, 512)
+        self.image_fc_1 = nn.Linear(512, 256)
+
+        # state "transformation" layer
+        self.state = nn.Linear(9, 256)
+        self.state_fc_0 = nn.Linear(256, 256)
+
+        # defining the upscaling layers to get out the original image size again
+        self.regressor = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.Dropout(0.5),
+            nn.ReLU(),
+            nn.Linear(256, 4),
+            ControlActivationLayer()
+        )
+
+        self.relu = nn.ReLU()
+        self.fc_dropout = nn.Dropout(p=0.5)
+
+    def forward(self, x):
+        image_x = self.features(x["input_image_0"])
+        image_x = self.relu(self.downsample(image_x))
+        image_x = image_x.reshape(image_x.size(0), -1)
+        image_x = self.relu(self.fc_dropout(self.image_fc_0(image_x)))
+        image_x = self.relu(self.fc_dropout(self.image_fc_1(image_x)))
+
+        state_x = self.relu(self.fc_dropout(self.state(x["input_state"])))
+        state_x = self.relu(self.fc_dropout(self.state_fc_0(state_x)))
+
+        combined_x = torch.cat([image_x, state_x], dim=-1)
+
+        probabilities = self.regressor(combined_x)
+
+        out = {"output_control": probabilities}
+        return out
+
+
 class ResNetRegressor(nn.Module):
 
     def __init__(self, config=None):
@@ -266,11 +318,17 @@ if __name__ == "__main__":
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda:0" if use_cuda else "cpu")
 
-    # tensor = torch.zeros((1, 3, 300, 400)).to(device)
-    tensor = [torch.zeros((1, 3, 300, 400)).to(device), torch.zeros((1, 3, 300, 400)).to(device)]
+    tensor = torch.zeros((1, 3, 300, 400)).to(device)
+    # tensor = [torch.zeros((1, 3, 300, 400)).to(device), torch.zeros((1, 3, 300, 400)).to(device)]
+    sample = {
+        "input_image_0": torch.zeros((1, 3, 150, 200)).to(device),
+        "input_state": torch.zeros((1, 9)).to(device)
+    }
 
-    net = ResNet18DualBranchRegressor().to(device)
-    out = net(tensor)
-    print(out.shape)
+    # net = ResNet18DualBranchRegressor().to(device)
+    net = ResNetStateLargerRegressor().to(device)
+    out = net(sample)
+    print(out)
 
     # summary(net, (3, 300, 400))
+

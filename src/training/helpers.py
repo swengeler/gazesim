@@ -4,7 +4,7 @@ from src.training.loggers import ControlLogger
 from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset
 from src.models.c3d import C3DRegressor
 from src.models.codevilla import Codevilla, Codevilla300, CodevillaSkip
-from src.models.resnet import ResNetStateRegressor, ResNetRegressor
+from src.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetStateLargerRegressor
 from src.models.utils import image_log_softmax
 
 
@@ -25,7 +25,8 @@ def resolve_model_class(model_name):
         "codevilla300": Codevilla300,
         "codevilla_skip": CodevillaSkip,
         "resnet_state": ResNetStateRegressor,
-        "resnet": ResNetRegressor
+        "resnet": ResNetRegressor,
+        "resnet_larger": ResNetStateLargerRegressor
     }[model_name]
 
 
@@ -88,7 +89,8 @@ def resolve_dataset_name(model_name):
         "codevilla300": "ImageAndStateToControlDataset",
         "codevilla_skip": "ImageAndStateToControlDataset",
         "resnet_state": "ImageAndStateToControlDataset",
-        "resnet": "ImageToControlDataset"
+        "resnet": "ImageToControlDataset",
+        "resnet_larger": "ImageAndStateToControlDataset"
     }[model_name]
 
 
@@ -114,7 +116,8 @@ def resolve_resize_parameters(model_name):
         "codevilla300": 300,
         "codevilla_skip": 150,
         "resnet_state": 300,
-        "resnet": 300
+        "resnet": 300,
+        "resnet_larger": 150
     }[model_name]
 
 
