@@ -124,6 +124,55 @@ class Codevilla300(Codevilla):
         return out
 
 
+class CodevillaSkip(Codevilla):
+    """
+    Based on "End-to-end Driving via Conditional Imitation Learning", specifically a TensorFlow implementation that
+    can be found at: https://www.github.com/merantix/imitation-learning
+    """
+
+    def __init__(self, config=None):
+        super().__init__()
+
+    def forward(self, x):
+        prev_image_x = x["input_image_0"]
+        image_x = self.image_conv_0(x["input_image_0"])
+        image_x = self.image_conv_1(image_x)
+        image_x += prev_image_x
+
+        prev_image_x = image_x
+        image_x = self.image_conv_2(image_x)
+        image_x = self.image_conv_3(image_x)
+        image_x += prev_image_x
+
+        prev_image_x = image_x
+        image_x = self.image_conv_4(image_x)
+        image_x = self.image_conv_5(image_x)
+        image_x += prev_image_x
+
+        prev_image_x = image_x
+        image_x = self.image_conv_6(image_x)
+        image_x = self.image_conv_7(image_x)
+        image_x += prev_image_x
+
+        image_x = image_x.reshape(image_x.size(0), -1)
+
+        image_x = self.image_fc_0(image_x)
+        image_x = self.image_fc_1(image_x)
+
+        state_x = self.state_fc_0(x["input_state"])
+        state_x = self.state_fc_1(state_x)
+
+        combined_x = torch.cat([image_x, state_x], dim=-1)
+
+        control_x = self.control_fc_0(combined_x)
+        control_x = self.control_fc_1(control_x)
+        logits = self.control_fc_2(control_x)
+        probabilities = self.final_activation(logits)
+
+        out = {"output_control": probabilities}
+        return out
+
+
 if __name__ == "__main__":
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda:0" if use_cuda else "cpu")
