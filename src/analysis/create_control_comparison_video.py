@@ -117,8 +117,17 @@ def test(config):
                                      current_frame_index["run"].iloc[si],
                                      current_frame_index["track_name"].iloc[si])
                     for si, _ in sequences]
+        if len(config["subjects"]) > 0:
+            check = [current_frame_index["subject"].iloc[si] in config["subjects"] for si, _ in sequences]
+            sequences = [sequences[i] for i in range(len(sequences)) if check[i]]
+            run_dirs = [run_dirs[i] for i in range(len(run_dirs)) if check[i]]
+        if len(config["runs"]) > 0:
+            check = [current_frame_index["run"].iloc[si] in config["runs"] for si, _ in sequences]
+            sequences = [sequences[i] for i in range(len(sequences)) if check[i]]
+            run_dirs = [run_dirs[i] for i in range(len(run_dirs)) if check[i]]
+
         run_dir = run_dirs[0]
-        for (start_index, end_index), current_run_dir in tqdm(zip(sequences, run_dirs), disable=False):
+        for (start_index, end_index), current_run_dir in tqdm(zip(sequences, run_dirs), disable=False, total=len(sequences)):
             # TODO: can't use frame_index here (which has the original indexing)
             """
             new_run_dir = run_info_to_path(current_frame_index["subject"].iloc[start_index],
@@ -352,6 +361,10 @@ if __name__ == "__main__":
                         help="TODO.")
     parser.add_argument("-g", "--gpu", type=int, default=0,
                         help="The GPU to use.")
+    parser.add_argument("-sub", "--subjects", type=int, nargs="*", default=[],
+                        help="Subjects to use.")
+    parser.add_argument("-run", "--runs", type=int, nargs="*", default=[],
+                        help="Runs to use.")
     parser.add_argument("-f", "--filter", type=str, default=None, choices=["turn_left", "turn_right"],
                         help="'Property' by which to filter frames (only left/right turn for now).")
     parser.add_argument("-tn", "--track_name", type=str, default="flat",
