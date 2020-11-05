@@ -8,3 +8,12 @@ STATISTICS = {
         "screen": [0.14304103712954377, 0.1309625291794035, 0.14716040743971653]
     }
 }
+
+HIGH_LEVEL_COMMAND_LABEL = {
+    "flat_left_half": 0,
+    "flat_right_half": 1,
+    "wave_left_half": 2,
+    "wave_right_half": 3,
+    "flat_none": 4,
+    "wave_none": 4
+}

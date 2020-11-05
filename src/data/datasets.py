@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 from src.data.utils import get_indexed_reader, resolve_split_index_path, run_info_to_path
-from src.data.constants import STATISTICS
+from src.data.constants import STATISTICS, HIGH_LEVEL_COMMAND_LABEL
 
 
 class ImageToAttentionMap(object):
@@ -246,7 +246,12 @@ class ImageAndStateToControlDataset(Dataset):
         for col in self.state_input_names:
             frame_index[col] = drone_state[col]
 
-        self.index = frame_index[frame_index["split"] == self.split]
+        self.index = frame_index[frame_index["split"] == self.split].copy()
+
+        self.index["label"] = 4
+        for idx, (track_name, half) in enumerate([("flat", "left_half"), ("flat", "right_half"),
+                                                  ("wave", "left_half"), ("wave", "right_half")]):
+            self.index.loc[(self.index["track_name"] == track_name) & (self.index[half] == 1), "label"] = idx
 
         with open(config["split_config"] + "_info.json", "r") as f:
             split_index_info = json.load(f)
@@ -296,6 +301,9 @@ class ImageAndStateToControlDataset(Dataset):
         # read the state input
         state_input = self.index[self.state_input_names].iloc[item].values
 
+        # determine the "high level command" label for the sample
+        high_level_label = self.index["label"].iloc[item]
+
         # extract the control GT from the dataframe
         output = self.index[self.output_columns].iloc[item].values
 
@@ -308,6 +316,7 @@ class ImageAndStateToControlDataset(Dataset):
             out[f"input_image_{idx}"] = self.video_input_transforms[idx](i)
         out["input_state"] = torch.from_numpy(state_input).float()
         out["output_control"] = torch.from_numpy(output).float()
+        out["label_high_level"] = high_level_label
 
         # return a dictionary
         return out
