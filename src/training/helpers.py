@@ -3,7 +3,7 @@ import torch
 from src.training.loggers import ControlLogger
 from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset
 from src.models.c3d import C3DRegressor
-from src.models.codevilla import Codevilla, Codevilla300, CodevillaSkip, CodevillaMultiHead
+from src.models.codevilla import Codevilla, Codevilla300, CodevillaSkip, CodevillaMultiHead, CodevillaDualBranch
 from src.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetStateLargerRegressor
 from src.models.utils import image_log_softmax
 
@@ -25,6 +25,7 @@ def resolve_model_class(model_name):
         "codevilla300": Codevilla300,
         "codevilla_skip": CodevillaSkip,
         "codevilla_multi_head": CodevillaMultiHead,
+        "codevilla_dual_branch": CodevillaDualBranch,
         "resnet_state": ResNetStateRegressor,
         "resnet": ResNetRegressor,
         "resnet_larger": ResNetStateLargerRegressor
@@ -90,6 +91,7 @@ def resolve_dataset_name(model_name):
         "codevilla300": "ImageAndStateToControlDataset",
         "codevilla_skip": "ImageAndStateToControlDataset",
         "codevilla_multi_head": "ImageAndStateToControlDataset",
+        "codevilla_dual_branch": "ImageAndStateToControlDataset",
         "resnet_state": "ImageAndStateToControlDataset",
         "resnet": "ImageToControlDataset",
         "resnet_larger": "ImageAndStateToControlDataset"
@@ -118,6 +120,7 @@ def resolve_resize_parameters(model_name):
         "codevilla300": 300,
         "codevilla_skip": 150,
         "codevilla_multi_head": 150,
+        "codevilla_dual_branch": 150,
         "resnet_state": 300,
         "resnet": 300,
         "resnet_larger": 150

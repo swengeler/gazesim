@@ -289,6 +289,7 @@ class ImageAndStateToControlDataset(Dataset):
 
         # initialise the video readers if necessary
         if current_run_dir not in self.video_readers:
+            # print(os.path.join(current_run_dir, f"{self.video_input_names[1]}.mp4"))
             self.video_readers[current_run_dir] = {
                 f"input_image_{idx}": get_indexed_reader(os.path.join(current_run_dir, f"{i}.mp4"))
                 for idx, i in enumerate(self.video_input_names)
@@ -329,11 +330,11 @@ class ImageToAttentionAndControlDataset(Dataset):
 if __name__ == "__main__":
     test_config = {
         "data_root": os.getenv("GAZESIM_ROOT"),
-        "input_video_names": ["screen"],
+        "input_video_names": ["screen", "hard_mask_moving_window_frame_mean_gt"],
         "ground_truth_name": "drone_control_frame_mean_gt",
         "drone_state_names": ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ"],
-        "resize": 300,
-        "split_config": 0
+        "resize": 150,
+        "split_config": resolve_split_index_path(10, data_root=os.getenv("GAZESIM_ROOT"))
     }
 
     dataset = ImageAndStateToControlDataset(test_config, split="train")

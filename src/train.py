@@ -127,20 +127,18 @@ if __name__ == "__main__":
                              "and validation (and test) data from. Can either be the path to a file or an index "
                              "(will search in $DATA_ROOT/splits/).")
     parser.add_argument("-ivn", "--input_video_names", type=str, nargs="+", default=["screen"],
-                        choices=["screen", "hard_mask_moving_window_mean_frame_gt",
-                                 "soft_mask_moving_window_mean_frame_gt"],
+                        choices=["screen", "hard_mask_moving_window_frame_mean_gt",
+                                 "soft_mask_moving_window_frame_mean_gt"],
                         help="The (file) name(s) for the video(s) to use as input.")
     parser.add_argument("-gtn", "--ground_truth_name", type=str, default="moving_window_mean_frame_gt",
-                        choices=["screen", "hard_mask_moving_window_mean_frame_gt",
-                                 "soft_mask_moving_window_mean_frame_gt"],
-                        help="The (file) name(s) for the video(s) to use as input.")
+                        help="The (file) name(s) for the video(s) to use as targets for attention.")
     parser.add_argument("-c", "--config_file", type=str,
                         help="Config file to load parameters from.")
 
     # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str, default="codevilla",
                         choices=["codevilla", "c3d", "codevilla300", "codevilla_skip", "codevilla_multi_head",
-                                 "resnet_state", "resnet", "resnet_larger"],
+                                 "codevilla_dual_branch", "resnet_state", "resnet", "resnet_larger"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,
                         help="Path to load a model checkpoint from (including information about the "
