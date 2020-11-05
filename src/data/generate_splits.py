@@ -16,7 +16,7 @@ import json
 
 from sklearn.model_selection import train_test_split
 from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit as MSSS
-from src.data.utils import filter_by_property, pair
+from src.data.utils import filter_by_property_improved, pair
 
 
 def find_next_split_name(split_dir):
@@ -211,8 +211,8 @@ def create_split_index(config):
         "expected_trajectory": 1,
     }
     properties.update(config["filter"])
-    properties.update(config["ground_truth_filter"])
-    df_frame_index = filter_by_property(df_frame_index, [], properties)
+    df_frame_index = filter_by_property_improved(df_frame_index, properties, config["filter_or"])
+    # TODO: should include the ability to have OR condition (right now only AND)
 
     # create the splits
     train_index, val_index, test_index, data_index = generate_splits(df_frame_index, config, return_data_index=True)
@@ -241,7 +241,7 @@ def create_split_index(config):
     """
     split_info = {k: config[k] for k in config.keys()
                   & {"train_size", "val_size", "test_size", "stratification_level", "group_by_level",
-                     "random_seed", "filter", "ground_truth_filter"}}
+                     "random_seed", "filter", "filter_or"}}
 
     split_dir = os.path.join(config["data_root"], "splits")
     if not os.path.exists(split_dir):
@@ -262,7 +262,7 @@ def parse_config(args):
     #    but then using the function stand-alone wouldn't check that anymore
     config = vars(args)
     config["filter"] = {n: v for n, v in config["filter"]}
-    config["ground_truth_filter"] = {n: v for n, v in config["ground_truth_filter"]}
+    config["filter_or"] = [{n: v for n, v in property_set} for property_set in config["filter_or"]]
     return config
 
 
@@ -291,10 +291,12 @@ if __name__ == "__main__":
                         help="TODO")
     PARSER.add_argument("-rs", "--random_seed", type=int, default=112,
                         help="The random seed to use for generating the splits.")
-    PARSER.add_argument("-f", "--filter", type=pair, nargs="*", default=[],
+    PARSER.add_argument("-f", "--filter", type=pair, nargs="+", default=[],
                         help="Properties and their values to filter by in the format property_name:value.")
-    PARSER.add_argument("-gtf", "--ground_truth_filter", type=pair, nargs="*", default=[],
-                        help="Ground-truth availability filter.")
+    PARSER.add_argument("-fo", "--filter_or", type=pair, nargs="+", default=[], action="append",
+                        help="Properties and their values to filter by in the format property_name:value. "
+                             "Uses OR instead of AND (-f/--filter) as condition. Multiple OR conditions "
+                             "can be specified by repeating the flag.")
 
     # parse the arguments
     ARGS = PARSER.parse_args()

@@ -242,6 +242,39 @@ def filter_by_property(data, properties, property_keep_dict=None, add_to_propert
     return data
 
 
+def filter_by_property_improved(data, properties_and, properties_or=None):
+    # assume that data is a dataframe in the format of the main index file
+    # properties_and is a dictionary
+    # properties_or is a list of dictionaries
+    assert all([p in data.columns for p in properties_and]), \
+        "All properties (AND) must be column names of the input dataframes."
+    assert all([p in data.columns for p in [o for s in properties_or for o in s.keys()]]), \
+        "All properties (OR) must be column names of the input dataframes."
+
+    for p in properties_and:
+        # TODO: maybe add different checks for different properties if required (e.g. isin())
+        data = data[data[p] == properties_and[p]]
+
+    if properties_or is not None:
+        for property_set in properties_or:
+            match = False
+            for prop, value in property_set.items():
+                match = match | (data[prop] == value)
+            data = data[match]
+
+    return data
+
+
+"""
+import pandas as pd
+d = pd.DataFrame({"one": [0, 0, 1, 1, 0, 0, 1, 1], "two": [1, 0, 0, 0, 0, 0, 0, 1], "three": [1, 1, 1, 1, 0, 0, 0, 0]})
+p_and = {"three": 1}
+p_or = [{"one": 1, "two": 1}]
+d = filter_by_property_improved(d, p_and, p_or)
+print(d)
+"""
+
+
 def find_contiguous_sequences(data, new_index=False):
     # find contiguous sequences of frames
     sequences = []
