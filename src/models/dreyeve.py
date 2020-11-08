@@ -132,7 +132,21 @@ class DrEYEveNet(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        pass
+
+        self.image_branch = SaliencyBranch(config)
+        self.optical_flow_branch = SaliencyBranch(config)
+
+        self.final_activation = nn.ReLU()
+
+    def forward(self, x):
+        image_x = self.image_branch(x)
+        optical_flow_x = self.optical_flow_branch(x)
+        combined_x = image_x + optical_flow_x
+
+        predictions = self.final_activation(combined_x)
+
+        out = {"output_attention": predictions}
+        return out
 
 
 if __name__ == "__main__":

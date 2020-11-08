@@ -21,7 +21,7 @@ class GroundTruthGenerator:
         raise NotImplementedError()
 
     def generate(self):
-        for rd in self.run_dir_list:
+        for rd in self.run_dir_list[23:24]:
             self.compute_gt(rd)
 
 
@@ -147,6 +147,91 @@ class MovingWindowFrameMeanGT(GroundTruthGenerator):
         df_gaze_gt.to_csv(gaze_gt_path, index=False)
 
         print("Saved moving window ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
+
+
+class OpticalFlowFarneback(GroundTruthGenerator):
+
+    NAME = "optical_flow_farneback"
+
+    def __init__(self, config):
+        super().__init__(config)
+
+    def get_gt_info(self, run_dir, subject, run):
+        # probably just ignore this, since anything where RGB is available is pretty much good?
+        # get the path to the index directory
+        index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
+        frame_index_path = os.path.join(index_dir, "frame_index.csv")
+        gaze_gt_path = os.path.join(index_dir, "gaze_gt.csv")
+
+        df_frame_index = pd.read_csv(frame_index_path)
+
+        if os.path.exists(gaze_gt_path):
+            df_gaze_gt = pd.read_csv(gaze_gt_path)
+        else:
+            df_gaze_gt = df_frame_index.copy()
+            df_gaze_gt = df_gaze_gt[["frame", "subject", "run"]]
+
+        if self.__class__.NAME not in df_gaze_gt.columns:
+            df_gaze_gt[self.__class__.NAME] = -1
+
+        # in principle, need only subject and run to identify where to put the new info...
+        # e.g. track name is more of a property to filter on...
+        match_index = (df_gaze_gt["subject"] == subject) & (df_gaze_gt["run"] == run)
+
+        return df_gaze_gt, gaze_gt_path, match_index
+
+    def compute_gt(self, run_dir):
+        start = time()
+
+        # get info about the current run
+        # TODO: probably not needed
+        run_info = parse_run_info(run_dir)
+        subject = run_info["subject"]
+        run = run_info["run"]
+
+        # initiate video capture and writer
+        video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
+        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
+        num_frames = int(num_frames)
+
+        if not (w == 800 and h == 600):
+            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+            return
+
+        # writer is only initialised after making sure that everything else works
+        video_writer = cv2.VideoWriter(
+            os.path.join(run_dir, f"{self.__class__.NAME}.mp4"),
+            int(fourcc),
+            fps,
+            (int(w), int(h)),
+            True
+        )
+
+        # loop through all frames and compute the optical flow
+        _, previous_frame = video_capture.read()
+        hsv_representation = np.zeros_like(previous_frame)
+        hsv_representation[..., 1] = 255
+        previous_frame = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
+        # TODO: should there be some way to indicate whether optical flow is available? e.g. in frame_index?
+        for frame_idx in tqdm(range(1, num_frames), disable=False):
+            _, current_frame = video_capture.read()
+            current_frame = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
+
+            optical_flow = cv2.calcOpticalFlowFarneback(previous_frame, current_frame, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+
+            magnitude, angle = cv2.cartToPolar(optical_flow[..., 0], optical_flow[..., 1])
+            hsv_representation[..., 0] = angle * 180 / np.pi / 2
+            hsv_representation[..., 2] = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
+            rgb_representation = cv2.cvtColor(hsv_representation, cv2.COLOR_HSV2BGR)
+
+            # save the resulting frame
+            video_writer.write(rgb_representation)
+
+        video_writer.release()
+
+        print("Saved optical flow for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
 class DroneControlFrameMeanGT(GroundTruthGenerator):
@@ -322,6 +407,8 @@ def resolve_gt_class(ground_truth_type: str) -> Type[GroundTruthGenerator]:
         return DroneControlFrameMeanGT
     elif ground_truth_type == "drone_state_frame_mean":
         return DroneStateFrameMean
+    elif ground_truth_type == "optical_flow":
+        return OpticalFlowFarneback
     return GroundTruthGenerator
 
 
@@ -344,7 +431,7 @@ if __name__ == "__main__":
                         help="The method to use to compute the ground-truth.")
     PARSER.add_argument("-gtt", "--ground_truth_type", type=str, default="moving_window_frame_mean_gt",
                         choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt",
-                                 "drone_state_frame_mean"],
+                                 "drone_state_frame_mean", "optical_flow"],
                         help="The method to use to compute the ground-truth.")
 
     # arguments only used for moving_window

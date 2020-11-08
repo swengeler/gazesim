@@ -465,6 +465,31 @@ class StackedImageToAttentionDataset(Dataset):
             # keep track of the current number of stacks (highest index)
             total_num_frame_stacks += num_frame_stacks
 
+        if config["dreyeve_transforms"]:
+            # define the following transforms
+            # - loaded stack to 112x112
+            # - load last frame to 448x448
+            # - loaded stack to 256x256 => random crop to 112x112
+            self.input_stack_transforms = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize((112, 112)),
+                transforms.ToTensor(),
+                transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
+            ])
+            self.input_last_frame_transforms = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize((448, 448)),
+                transforms.ToTensor(),
+                transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
+            ])
+            self.input_stack_crop_transforms = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize((112, 112)),
+                transforms.ToTensor(),
+                transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"]),
+                transforms.RandomCrop((112, 112))
+            ])
+
     def __len__(self):
         return len(self.index.index)
 
