@@ -1,5 +1,4 @@
 import os
-import cv2
 import numpy as np
 import pandas as pd
 import json
@@ -8,6 +7,7 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from tqdm import tqdm
 from src.data.utils import get_indexed_reader, resolve_split_index_path, run_info_to_path
 from src.data.constants import STATISTICS, HIGH_LEVEL_COMMAND_LABEL
 
@@ -98,9 +98,11 @@ class ImageToAttentionDataset(Dataset):
         ])
 
         self.video_readers = {}
+        """
         self.index["run_dir"] = None
         unique_run_info = self.index.groupby(["track_name", "subject", "run"]).size().reset_index()
-        for _, row in unique_run_info.iterrows():
+        print("Preparing video readers!")
+        for _, row in tqdm(unique_run_info.iterrows()):
             run_dir = os.path.join(self.data_root, run_info_to_path(row["subject"], row["run"], row["track_name"]))
             if run_dir not in self.video_readers:
                 self.video_readers[run_dir] = {
@@ -112,6 +114,7 @@ class ImageToAttentionDataset(Dataset):
             self.index.loc[(self.index["track_name"] == row["track_name"])
                            & (self.index["subject"] == row["subject"])
                            & (self.index["run"] == row["run"]), "run_dir"] = run_dir
+        """
 
     def __len__(self):
         return len(self.index.index)
@@ -120,8 +123,7 @@ class ImageToAttentionDataset(Dataset):
         # get the information about the current item
         current_row = self.index.iloc[item]
         current_frame_index = current_row["frame"]
-        current_run_dir = current_row["run_dir"]
-        """
+        # current_run_dir = current_row["run_dir"]
         current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
                                                                         current_row["run"],
                                                                         current_row["track_name"]))
@@ -134,7 +136,6 @@ class ImageToAttentionDataset(Dataset):
             }
             self.video_readers[current_run_dir]["output_attention"] = get_indexed_reader(os.path.join(
                 current_run_dir, f"{self.output_name}.mp4"))
-        """
 
         # read the frames
         inputs = [self.video_readers[current_run_dir][f"input_image_{idx}"][current_frame_index]
@@ -199,6 +200,7 @@ class ImageToControlDataset(Dataset):
         ]) for i in self.input_names]
 
         self.video_readers = {}
+        """
         self.index["run_dir"] = None
         unique_run_info = self.index.groupby(["track_name", "subject", "run"]).size().reset_index()
         for _, row in unique_run_info.iterrows():
@@ -211,6 +213,7 @@ class ImageToControlDataset(Dataset):
             self.index.loc[(self.index["track_name"] == row["track_name"])
                            & (self.index["subject"] == row["subject"])
                            & (self.index["run"] == row["run"]), "run_dir"] = run_dir
+        """
 
     def __len__(self):
         return len(self.index.index)
@@ -219,8 +222,7 @@ class ImageToControlDataset(Dataset):
         # get the information about the current item
         current_row = self.index.iloc[item]
         current_frame_index = current_row["frame"]
-        current_run_dir = current_row["run_dir"]
-        """
+        # current_run_dir = current_row["run_dir"]
         current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
                                                                         current_row["run"],
                                                                         current_row["track_name"]))
@@ -231,7 +233,6 @@ class ImageToControlDataset(Dataset):
                 f"input_image_{idx}": get_indexed_reader(os.path.join(current_run_dir, f"{i}.mp4"))
                 for idx, i in enumerate(self.input_names)
             }
-        """
 
         # read the input frames
         inputs = [self.video_readers[current_run_dir][f"input_image_{idx}"][current_frame_index]
@@ -307,9 +308,11 @@ class ImageAndStateToControlDataset(Dataset):
         ]) for i in self.video_input_names]
 
         self.video_readers = {}
+        """
         self.index["run_dir"] = None
         unique_run_info = self.index.groupby(["track_name", "subject", "run"]).size().reset_index()
-        for _, row in unique_run_info.iterrows():
+        print("Preparing video readers!")
+        for _, row in tqdm(unique_run_info.iterrows()):
             run_dir = os.path.join(self.data_root, run_info_to_path(row["subject"], row["run"], row["track_name"]))
             if run_dir not in self.video_readers:
                 self.video_readers[run_dir] = {
@@ -319,6 +322,7 @@ class ImageAndStateToControlDataset(Dataset):
             self.index.loc[(self.index["track_name"] == row["track_name"])
                            & (self.index["subject"] == row["subject"])
                            & (self.index["run"] == row["run"]), "run_dir"] = run_dir
+        """
 
     def __len__(self):
         return len(self.index.index)
@@ -327,8 +331,7 @@ class ImageAndStateToControlDataset(Dataset):
         # get the information about the current item
         current_row = self.index.iloc[item]
         current_frame_index = current_row["frame"]
-        current_run_dir = current_row["run_dir"]
-        """
+        # current_run_dir = current_row["run_dir"]
         current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
                                                                         current_row["run"],
                                                                         current_row["track_name"]))
@@ -340,7 +343,6 @@ class ImageAndStateToControlDataset(Dataset):
                 f"input_image_{idx}": get_indexed_reader(os.path.join(current_run_dir, f"{i}.mp4"))
                 for idx, i in enumerate(self.video_input_names)
             }
-        """
 
         # read the input frames
         video_inputs = [self.video_readers[current_run_dir][f"input_image_{idx}"][current_frame_index]
@@ -420,6 +422,7 @@ class StackedImageToAttentionDataset(Dataset):
         #  THE CROPPED STREAM OF THE COARSE-REFINE ARCHITECTURE
 
         self.video_readers = {}
+        """
         self.index["run_dir"] = None
         unique_run_info = self.index.groupby(["track_name", "subject", "run"]).size().reset_index()
         for _, row in unique_run_info.iterrows():
@@ -434,6 +437,7 @@ class StackedImageToAttentionDataset(Dataset):
             self.index.loc[(self.index["track_name"] == row["track_name"])
                            & (self.index["subject"] == row["subject"])
                            & (self.index["run"] == row["run"]), "run_dir"] = run_dir
+        """
 
         # find contiguous sequences of frames
         sequences = []
@@ -465,7 +469,7 @@ class StackedImageToAttentionDataset(Dataset):
             # keep track of the current number of stacks (highest index)
             total_num_frame_stacks += num_frame_stacks
 
-        if config["dreyeve_transforms"]:
+        if "dreyeve_transforms" in config and config["dreyeve_transforms"]:
             # define the following transforms
             # - loaded stack to 112x112
             # - load last frame to 448x448
@@ -496,15 +500,29 @@ class StackedImageToAttentionDataset(Dataset):
     def __getitem__(self, item):
         # get the information about the current item
         current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
-        current_run_dir = self.index["run_dir"].iloc[current_stack_index]
+        # current_run_dir = self.index["run_dir"].iloc[current_stack_index]
         current_stack_df = self.index.iloc[(current_stack_index - self.stack_size + 1):(current_stack_index + 1)]
         current_frame_index = current_stack_df["frame"].iloc[-1]
+        current_run_dir = os.path.join(self.data_root, run_info_to_path(current_stack_df["subject"].iloc[0],
+                                                                        current_stack_df["run"].iloc[0],
+                                                                        current_stack_df["track_name"].iloc[0]))
+
+        # initialise the video readers if necessary
+        if current_run_dir not in self.video_readers:
+            # print(os.path.join(current_run_dir, f"{self.video_input_names[1]}.mp4"))
+            self.video_readers[current_run_dir] = {
+                f"input_stack_{idx}": get_indexed_reader(os.path.join(current_run_dir, f"{i}.mp4"))
+                for idx, i in enumerate(self.input_names)
+            }
+            self.video_readers[current_run_dir]["output_attention"] = get_indexed_reader(os.path.join(
+                current_run_dir, f"{self.output_name}.mp4"))
 
         # read the frames
         inputs = [[] for _ in self.input_names]
         inputs_original = [[] for _ in self.input_names]
         for idx, _ in enumerate(self.input_names):
             for _, row in current_stack_df.iterrows():
+                # TODO: need to re-add the thing
                 frame = self.video_readers[current_run_dir][f"input_stack_{idx}"][row["frame"]]
                 frame_original = frame.copy()
 
