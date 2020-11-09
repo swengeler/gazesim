@@ -207,10 +207,9 @@ class CodevillaDualBranch(CodevillaMultiHead):
             Codevilla.conv_block(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=0),
         )
 
-        # image network, fully connected layers
-        self.branch_0_image_net_fc = self.image_net_fc
-        self.branch_1_image_net_fc = nn.Sequential(
-            Codevilla.fc_block(7168, 512),
+        # image network(s), fully connected layers
+        self.image_net_fc = nn.Sequential(
+            Codevilla.fc_block(7168 * 2, 512),
             Codevilla.fc_block(512, 512)
         )
 
@@ -221,20 +220,23 @@ class CodevillaDualBranch(CodevillaMultiHead):
         )
 
         # control network input vector
-        self.control_input_vector = Codevilla.fc_block(2 * 512 + 128, 512)
+        self.control_input_vector = Codevilla.fc_block(512 + 128, 512)
 
     def forward(self, x):
         branch_0_image_x = self.branch_0_image_net_conv(x["input_image_0"])
         branch_0_image_x = branch_0_image_x.reshape(branch_0_image_x.size(0), -1)
-        branch_0_image_x = self.branch_0_image_net_fc(branch_0_image_x)
+        # branch_0_image_x = self.branch_0_image_net_fc(branch_0_image_x)
 
         branch_1_image_x = self.branch_1_image_net_conv(x["input_image_1"])
         branch_1_image_x = branch_1_image_x.reshape(branch_1_image_x.size(0), -1)
-        branch_1_image_x = self.branch_1_image_net_fc(branch_1_image_x)
+        # branch_1_image_x = self.branch_1_image_net_fc(branch_1_image_x)
+
+        combined_x = torch.cat([branch_0_image_x, branch_1_image_x], dim=-1)
+        combined_x = self.image_net_fc(combined_x)
 
         state_x = self.state_net(x["input_state"])
 
-        combined_x = torch.cat([branch_0_image_x, branch_1_image_x, state_x], dim=-1)
+        combined_x = torch.cat([combined_x, state_x], dim=-1)
         combined_x = self.control_input_vector(combined_x)
 
         # use different branches depending on label of each sample in batch
