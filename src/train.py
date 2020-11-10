@@ -11,6 +11,9 @@ from src.training.helpers import resolve_losses, resolve_output_processing_func,
 
 
 def train(config):
+    # set the seed for PyTorch
+    torch.manual_seed(config["torch_seed"])
+
     # use GPU if possible
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda:{}".format(config["gpu"])
@@ -132,6 +135,8 @@ if __name__ == "__main__":
                         help="The (file) name(s) for the video(s) to use as targets for attention.")
     parser.add_argument("-c", "--config_file", type=str,
                         help="Config file to load parameters from.")
+    parser.add_argument("-nn", "--no_normalisation", action="store_true",
+                        help="Whether or not to normalise the (image) input data.")
 
     # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str, default="codevilla",
@@ -145,6 +150,8 @@ if __name__ == "__main__":
     # arguments related to training
     parser.add_argument("-g", "--gpu", type=int, default=0,
                         help="GPU to use for training if any are available.")
+    parser.add_argument("-ts", "--torch_seed", type=int, default=127,
+                        help="Random seed to use for calling torch.manual_seed(seed).")
     parser.add_argument("-w", "--num_workers", type=int, default=4,
                         help="Number of workers to use for loading the data.")
     parser.add_argument("-b", "--batch_size", type=int, default=128,

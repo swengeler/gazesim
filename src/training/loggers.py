@@ -60,23 +60,25 @@ class ControlLogger(Logger):
         super().__init__(config, model, dataset)
 
         self.control_names = dataset.output_columns
-        self.total_loss_val = None
-        self.individual_losses_val = None
+        self.total_loss_val_mse = None
+        self.total_loss_val_l1 = None
+        self.individual_losses_val_mse = None
+        self.individual_losses_val_l1 = None
         self.counter_val = 0
 
     def training_step_end(self, global_step, loss, batch, predictions):
         # log total loss
-        self.tb_writer.add_scalar("loss/train/total", loss.item(), global_step)
+        self.tb_writer.add_scalar("loss/train/total/mse", loss.item(), global_step)
 
         # determine individual losses
-        individual_losses = torch.nn.functional.mse_loss(predictions["output_control"],
-                                                         batch["output_control"],
-                                                         reduction="none")
-        individual_losses = torch.mean(individual_losses, dim=0)
+        individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_control"],
+                                                             batch["output_control"],
+                                                             reduction="none")
+        individual_losses_mse = torch.mean(individual_losses_mse, dim=0)
 
         # log individual losses
-        for n, l in zip(self.control_names, individual_losses):
-            self.tb_writer.add_scalar(f"loss/train/{n}", l, global_step)
+        for n, l_mse in zip(self.control_names, individual_losses_mse):
+            self.tb_writer.add_scalar(f"loss/train/{n}/mse", l_mse, global_step)
 
     def training_epoch_end(self, global_step, epoch, model, optimiser):
         # save model checkpoint
@@ -92,34 +94,46 @@ class ControlLogger(Logger):
 
     def validation_step_end(self, global_step, loss, batch, predictions):
         # determine individual losses
-        individual_losses = torch.nn.functional.mse_loss(predictions["output_control"],
-                                                         batch["output_control"],
-                                                         reduction="none")
-        individual_losses = torch.mean(individual_losses, dim=0)
+        individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_control"],
+                                                             batch["output_control"],
+                                                             reduction="none")
+        individual_losses_mse = torch.mean(individual_losses_mse, dim=0)
+        individual_losses_l1 = torch.nn.functional.l1_loss(predictions["output_control"],
+                                                           batch["output_control"],
+                                                           reduction="none")
+        individual_losses_l1 = torch.mean(individual_losses_l1, dim=0)
 
         # accumulate total loss
-        if self.total_loss_val is None:
-            self.total_loss_val = torch.zeros_like(loss)
-        self.total_loss_val += loss
+        if self.total_loss_val_mse is None:
+            self.total_loss_val_mse = torch.zeros_like(loss)
+            self.total_loss_val_l1 = torch.zeros_like(loss)
+        self.total_loss_val_mse += loss
+        self.total_loss_val_l1 += torch.mean(individual_losses_l1)
 
         # accumulate individual losses
-        if self.individual_losses_val is None:
-            self.individual_losses_val = torch.zeros_like(individual_losses)
-        self.individual_losses_val += individual_losses
+        if self.individual_losses_val_mse is None:
+            self.individual_losses_val_mse = torch.zeros_like(individual_losses_mse)
+            self.individual_losses_val_l1 = torch.zeros_like(individual_losses_l1)
+        self.individual_losses_val_mse += individual_losses_mse
+        self.individual_losses_val_l1 += individual_losses_l1
 
         self.counter_val += 1
 
     def validation_epoch_end(self, global_step, epoch, model, optimiser):
         # log total loss
-        self.tb_writer.add_scalar("loss/val/total", self.total_loss_val.item() / self.counter_val, global_step)
+        self.tb_writer.add_scalar("loss/val/total/mse", self.total_loss_val_mse.item() / self.counter_val, global_step)
+        self.tb_writer.add_scalar("loss/val/total/l1", self.total_loss_val_l1.item() / self.counter_val, global_step)
 
         # log individual losses
-        for n, l in zip(self.control_names, self.individual_losses_val):
-            self.tb_writer.add_scalar(f"loss/val/{n}", l / self.counter_val, global_step)
+        for n, l_mse, l_l1 in zip(self.control_names, self.individual_losses_val_mse, self.individual_losses_val_l1):
+            self.tb_writer.add_scalar(f"loss/val/{n}/mse", l_mse / self.counter_val, global_step)
+            self.tb_writer.add_scalar(f"loss/val/{n}/l1", l_l1 / self.counter_val, global_step)
 
         # reset the loss accumulators
-        self.total_loss_val = torch.zeros_like(self.total_loss_val)
-        self.individual_losses_val = torch.zeros_like(self.individual_losses_val)
+        self.total_loss_val_mse = torch.zeros_like(self.total_loss_val_mse)
+        self.total_loss_val_l1 = torch.zeros_like(self.total_loss_val_l1)
+        self.individual_losses_val_mse = torch.zeros_like(self.individual_losses_val_mse)
+        self.individual_losses_val_l1 = torch.zeros_like(self.individual_losses_val_l1)
         self.counter_val = 0
 
 

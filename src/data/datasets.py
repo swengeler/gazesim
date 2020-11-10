@@ -73,16 +73,19 @@ class ImageToAttentionDataset(Dataset):
             split_index_info = json.load(f)
         input_statistics = {}
         for i in self.input_names:
-            if "mean" in split_index_info and "std" in split_index_info:
-                input_statistics[i] = {
-                    "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
-                    "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
-                }
+            if config["no_normalisation"]:
+                input_statistics[i] = {"mean": np.array([0, 0, 0]), "std": np.array([1, 1, 1])}
             else:
-                input_statistics[i] = {
-                    "mean": STATISTICS["mean"][i],
-                    "std": STATISTICS["std"][i]
-                }
+                if "mean" in split_index_info and "std" in split_index_info:
+                    input_statistics[i] = {
+                        "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
+                        "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
+                    }
+                else:
+                    input_statistics[i] = {
+                        "mean": STATISTICS["mean"][i],
+                        "std": STATISTICS["std"][i]
+                    }
         self.input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(config["resize"]),
@@ -182,16 +185,19 @@ class ImageToControlDataset(Dataset):
             split_index_info = json.load(f)
         input_statistics = {}
         for i in self.input_names:
-            if "mean" in split_index_info and "std" in split_index_info:
-                input_statistics[i] = {
-                    "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
-                    "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
-                }
+            if config["no_normalisation"]:
+                input_statistics[i] = {"mean": np.array([0, 0, 0]), "std": np.array([1, 1, 1])}
             else:
-                input_statistics[i] = {
-                    "mean": STATISTICS["mean"][i],
-                    "std": STATISTICS["std"][i]
-                }
+                if "mean" in split_index_info and "std" in split_index_info:
+                    input_statistics[i] = {
+                        "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
+                        "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
+                    }
+                else:
+                    input_statistics[i] = {
+                        "mean": STATISTICS["mean"][i],
+                        "std": STATISTICS["std"][i]
+                    }
         self.input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(config["resize"]),
@@ -290,16 +296,19 @@ class ImageAndStateToControlDataset(Dataset):
             split_index_info = json.load(f)
         input_statistics = {}
         for i in self.video_input_names:
-            if "mean" in split_index_info and "std" in split_index_info:
-                input_statistics[i] = {
-                    "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
-                    "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
-                }
+            if config["no_normalisation"]:
+                input_statistics[i] = {"mean": np.array([0, 0, 0]), "std": np.array([1, 1, 1])}
             else:
-                input_statistics[i] = {
-                    "mean": STATISTICS["mean"][i],
-                    "std": STATISTICS["std"][i]
-                }
+                if "mean" in split_index_info and "std" in split_index_info:
+                    input_statistics[i] = {
+                        "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
+                        "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
+                    }
+                else:
+                    input_statistics[i] = {
+                        "mean": STATISTICS["mean"][i],
+                        "std": STATISTICS["std"][i]
+                    }
         self.video_input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(config["resize"]),
@@ -395,16 +404,19 @@ class StackedImageToAttentionDataset(Dataset):
             split_index_info = json.load(f)
         input_statistics = {}
         for i in self.input_names:
-            if "mean" in split_index_info and "std" in split_index_info:
-                input_statistics[i] = {
-                    "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
-                    "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
-                }
+            if config["no_normalisation"]:
+                input_statistics[i] = {"mean": np.array([0, 0, 0]), "std": np.array([1, 1, 1])}
             else:
-                input_statistics[i] = {
-                    "mean": STATISTICS["mean"][i],
-                    "std": STATISTICS["std"][i]
-                }
+                if "mean" in split_index_info and "std" in split_index_info:
+                    input_statistics[i] = {
+                        "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
+                        "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
+                    }
+                else:
+                    input_statistics[i] = {
+                        "mean": STATISTICS["mean"][i],
+                        "std": STATISTICS["std"][i]
+                    }
         self.input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(config["resize"]),
