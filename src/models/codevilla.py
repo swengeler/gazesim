@@ -183,9 +183,9 @@ class CodevillaMultiHead(Codevilla):
         combined_x = torch.cat(samples, 0)
 
         # final activation
-        # probabilities = self.final_activation(combined_x)
+        probabilities = self.final_activation(combined_x)
 
-        out = {"output_control": combined_x}
+        out = {"output_control": probabilities}
         return out
 
 
@@ -263,9 +263,9 @@ class CodevillaDualBranch(CodevillaMultiHead):
         combined_x = torch.cat(samples, 0)
 
         # final activation
-        # probabilities = self.final_activation(combined_x)
+        probabilities = self.final_activation(combined_x)
 
-        out = {"output_control": combined_x}
+        out = {"output_control": probabilities}
         return out
 
 
