@@ -47,7 +47,7 @@ class Codevilla(nn.Module):
         )
 
         # measurement/state network
-        self.state_fc_0 = Codevilla.fc_block(9, 128)
+        self.state_fc_0 = Codevilla.fc_block(len(config["drone_state_names"]), 128)
         self.state_fc_1 = Codevilla.fc_block(128, 128)
 
         self.state_net = nn.Sequential(
@@ -124,7 +124,7 @@ class CodevillaMultiHead(Codevilla):
 
         # measurement/state network
         self.state_net = nn.Sequential(
-            Codevilla.fc_block(9, 128),
+            Codevilla.fc_block(len(config["drone_state_names"]), 128),
             Codevilla.fc_block(128, 128)
         )
 
@@ -215,7 +215,7 @@ class CodevillaDualBranch(CodevillaMultiHead):
 
         # measurement/state network
         self.state_net = nn.Sequential(
-            Codevilla.fc_block(9, 128),
+            Codevilla.fc_block(len(config["drone_state_names"]), 128),
             Codevilla.fc_block(128, 128)
         )
 
@@ -369,7 +369,8 @@ if __name__ == "__main__":
         "input_image_0": image,
         "input_image_1": image.clone(),
         "input_state": state,
-        "label_high_level": label
+        "label_high_level": label,
+        "drone_state_names": ["?"] * 9
     }
 
     net = CodevillaDualBranch().to(device)

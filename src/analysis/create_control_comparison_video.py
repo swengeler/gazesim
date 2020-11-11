@@ -86,8 +86,8 @@ def test(config):
     train_config["data_root"] = config["data_root"]
     train_config["gpu"] = config["gpu"]
     train_config["model_load_path"] = config["model_load_path"]
-    train_config["split_config"] = config["split_config"]
     train_config = parse_train_config(train_config)
+    train_config["split_config"] = config["split_config"]
 
     # load the model
     model_info = train_config["model_info"]

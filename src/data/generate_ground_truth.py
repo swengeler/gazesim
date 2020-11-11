@@ -229,6 +229,8 @@ class OpticalFlowFarneback(GroundTruthGenerator):
             # save the resulting frame
             video_writer.write(rgb_representation)
 
+            previous_frame = current_frame
+
         video_writer.release()
 
         print("Saved optical flow for directory '{}' after {:.2f}s.".format(run_dir, time() - start))

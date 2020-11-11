@@ -207,7 +207,7 @@ class ResNetStateRegressor(nn.Module):
         self.pooling = nn.AdaptiveAvgPool2d((1, 1))
 
         # state "transformation" layer
-        self.state = nn.Linear(9, 256)
+        self.state = nn.Linear(len(config["drone_state_names"]), 256)
 
         # defining the upscaling layers to get out the original image size again
         self.regressor = nn.Sequential(
@@ -249,7 +249,7 @@ class ResNetStateLargerRegressor(nn.Module):
         self.image_fc_1 = nn.Linear(512, 256)
 
         # state "transformation" layer
-        self.state = nn.Linear(9, 256)
+        self.state = nn.Linear(len(config["drone_state_names"]), 256)
         self.state_fc_0 = nn.Linear(256, 256)
 
         # defining the upscaling layers to get out the original image size again
@@ -309,6 +309,36 @@ class ResNetRegressor(nn.Module):
         image_x = image_x.reshape(image_x.size(0), -1)
 
         probabilities = self.regressor(image_x)
+
+        out = {"output_control": probabilities}
+        return out
+
+
+class StateOnlyRegressor(nn.Module):
+
+    def __init__(self, config=None):
+        super().__init__()
+        # state "transformation" layer
+        self.state = nn.Linear(len(config["drone_state_names"]), 256)
+        self.state_fc_0 = nn.Linear(256, 512)
+
+        # defining the upscaling layers to get out the original image size again
+        self.regressor = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.Dropout(0.5),
+            nn.ReLU(),
+            nn.Linear(256, 4),
+            ControlActivationLayer()
+        )
+
+        self.relu = nn.ReLU()
+        self.fc_dropout = nn.Dropout(p=0.5)
+
+    def forward(self, x):
+        state_x = self.relu(self.fc_dropout(self.state(x["input_state"])))
+        state_x = self.relu(self.fc_dropout(self.state_fc_0(state_x)))
+
+        probabilities = self.regressor(state_x)
 
         out = {"output_control": probabilities}
         return out

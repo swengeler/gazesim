@@ -394,6 +394,7 @@ class StackedImageToAttentionDataset(Dataset):
         self.output_name = config["ground_truth_name"]
         self.split = split
         self.stack_size = config["stack_size"]
+        self.dreyeve_transforms = config["dreyeve_transforms"]
 
         frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
         split_index = pd.read_csv(config["split_config"] + ".csv")
@@ -417,12 +418,42 @@ class StackedImageToAttentionDataset(Dataset):
                         "mean": STATISTICS["mean"][i],
                         "std": STATISTICS["std"][i]
                     }
-        self.input_transforms = [transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize(config["resize"]),
-            transforms.ToTensor(),
-            transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
-        ]) for i in self.input_names]
+
+        if config["dreyeve_transforms"]:
+            # define the following transforms
+            # - loaded stack to 112x112
+            # - load last frame to 448x448
+            # - loaded stack to 256x256 => random crop to 112x112
+            self.input_transforms = {
+                "stack": [transforms.Compose([
+                    transforms.ToPILImage(),
+                    transforms.Resize((112, 112)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
+                ]) for i in self.input_names],
+                "stack_crop": [transforms.Compose([
+                    transforms.ToPILImage(),
+                    transforms.Resize((448, 448)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
+                ]) for i in self.input_names],
+                "last_frame": [transforms.Compose([
+                    transforms.ToPILImage(),
+                    transforms.Resize((256, 256)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"]),
+                    transforms.RandomCrop((112, 112))
+                ]) for i in self.input_names],
+            }
+        else:
+            # just a simple transform for every frame
+            self.input_transforms = [transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize(config["resize"]),
+                transforms.ToTensor(),
+                transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
+            ]) for i in self.input_names]
+
         self.output_transform = transforms.Compose([
             ImageToAttentionMap(),
             transforms.ToPILImage(),
@@ -481,31 +512,6 @@ class StackedImageToAttentionDataset(Dataset):
             # keep track of the current number of stacks (highest index)
             total_num_frame_stacks += num_frame_stacks
 
-        if "dreyeve_transforms" in config and config["dreyeve_transforms"]:
-            # define the following transforms
-            # - loaded stack to 112x112
-            # - load last frame to 448x448
-            # - loaded stack to 256x256 => random crop to 112x112
-            self.input_stack_transforms = transforms.Compose([
-                transforms.ToPILImage(),
-                transforms.Resize((112, 112)),
-                transforms.ToTensor(),
-                transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
-            ])
-            self.input_last_frame_transforms = transforms.Compose([
-                transforms.ToPILImage(),
-                transforms.Resize((448, 448)),
-                transforms.ToTensor(),
-                transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
-            ])
-            self.input_stack_crop_transforms = transforms.Compose([
-                transforms.ToPILImage(),
-                transforms.Resize((112, 112)),
-                transforms.ToTensor(),
-                transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"]),
-                transforms.RandomCrop((112, 112))
-            ])
-
     def __len__(self):
         return len(self.index.index)
 
@@ -539,6 +545,7 @@ class StackedImageToAttentionDataset(Dataset):
                 frame_original = frame.copy()
 
                 # apply input transform here already
+                # TODO: transforms for DREYEVE stuff
                 frame = self.input_transforms[idx](frame)
 
                 inputs[idx].append(frame)

@@ -7,6 +7,12 @@ from src.data.utils import resolve_split_index_path
 from src.training.helpers import resolve_dataset_name, resolve_resize_parameters, get_outputs, get_valid_losses, resolve_gt_name
 
 
+COLUMNS_DRONE_VEL = ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ"]
+COLUMNS_DRONE_ACC = ["DroneAccelerationX", "DroneAccelerationY", "DroneAccelerationZ"]
+COLUMNS_DRONE_ANG_VEL = ["DroneAngularX", "DroneAngularY", "DroneAngularZ"]
+COLUMNS_SHORTHAND_DICT = {"vel": COLUMNS_DRONE_VEL, "acc": COLUMNS_DRONE_ACC, "ang_vel": COLUMNS_DRONE_ANG_VEL}
+
+
 def parse_config(args):
     config = args if isinstance(args, dict) else vars(args)
     if config["config_file"] is not None:
@@ -61,10 +67,18 @@ def parse_config(args):
     else:
         config["experiment_name"] = timestamp
 
-    # TODO: all of these are pretty hacky right now and need to be cleaned up so that more flexible selection is possible
-    config["drone_state_names"] = ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ",
-                                   "DroneAccelerationX", "DroneAccelerationY", "DroneAccelerationZ",
-                                   "DroneAngularX", "DroneAngularY", "DroneAngularZ"]
+    if config["drone_state_names"] is None or "all" in config["drone_state_names"]:
+        drone_state_names = COLUMNS_DRONE_VEL + COLUMNS_DRONE_ACC + COLUMNS_DRONE_ANG_VEL
+    else:
+        drone_state_names = []
+        for sn in config["drone_state_names"]:
+            if sn in COLUMNS_SHORTHAND_DICT:
+                drone_state_names.append(COLUMNS_SHORTHAND_DICT[sn])
+            elif sn in (COLUMNS_DRONE_VEL + COLUMNS_DRONE_ACC + COLUMNS_DRONE_ANG_VEL):
+                drone_state_names.append(sn)
+    config["drone_state_names"] = drone_state_names
+
+    # TODO: will have to check whether/where this is still needed
     config["ground_truth_name"] = resolve_gt_name(config["dataset_name"])
 
     # which parser arguments to keep:

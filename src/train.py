@@ -31,10 +31,14 @@ def train(config):
     # define the model
     model_class = resolve_model_class(config["model_name"])
     model = model_class(config)
+    if config["model_info"] is not None:
+        model.load_state_dict(config["model_info"]["model_state_dict"])
     model = model.to(device)
 
     # define the optimiser
     optimiser = resolve_optimiser_class(config["optimiser"])(model.parameters(), lr=config["learning_rate"])
+    if config["model_info"] is not None:
+        optimiser.load_state_dict(config["model_info"]["optimiser_state_dict"])
 
     # define the loss function(s)
     loss_functions = resolve_losses(config["losses"])
@@ -48,8 +52,8 @@ def train(config):
     validation_check = validation_check[1:]
 
     # loop over epochs
-    global_step = 0
-    for epoch in range(config["num_epochs"]):
+    global_step = 0 if config["model_info"] else config["model_info"]["global_step"]
+    for epoch in range(0 if config["model_info"] is None else config["model_info"]["epoch"], config["num_epochs"]):
         print("Starting epoch {:03d}!".format(epoch))
         model.train()
         validation_current = 0
@@ -131,19 +135,25 @@ if __name__ == "__main__":
                              "(will search in $DATA_ROOT/splits/).")
     parser.add_argument("-ivn", "--input_video_names", type=str, nargs="+", default=["screen"],
                         help="The (file) name(s) for the video(s) to use as input.")
+    parser.add_argument("-dsn", "--drone_state_names", type=str, nargs="+", default=None,
+                        help="The column names/quantities to use as input when there is a drone state input. "
+                             "Can also specify the following shorthands for pre-defined sets of columns: "
+                             "'all', 'vel', 'acc', 'ang_vel'.")
     parser.add_argument("-gtn", "--ground_truth_name", type=str, default="moving_window_mean_frame_gt",
                         help="The (file) name(s) for the video(s) to use as targets for attention.")
     parser.add_argument("-c", "--config_file", type=str,
                         help="Config file to load parameters from.")
     parser.add_argument("-nn", "--no_normalisation", action="store_true",
                         help="Whether or not to normalise the (image) input data.")
+    parser.add_argument("-dt", "--dreyeve_transforms", action="store_true",
+                        help="Whether or not to apply transforms used in the DR(eye)VE paper.")
 
     # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str, default="codevilla",
                         choices=["codevilla", "c3d", "codevilla300", "codevilla_skip", "codevilla_multi_head",
-                                 "codevilla_dual_branch", "resnet_state", "resnet", "resnet_larger"],
+                                 "codevilla_dual_branch", "resnet_state", "resnet", "resnet_larger", "state_only"],
                         help="The name of the model to use.")
-    parser.add_argument("-mlp", "--model_load_path", type=str,
+    parser.add_argument("-mlp", "--model_load_path", type=str,  # TODO: maybe adjust for dreyeve net
                         help="Path to load a model checkpoint from (including information about the "
                              "architecture, the current weights and the state of the optimiser).")
 
