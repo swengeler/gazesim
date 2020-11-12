@@ -6,13 +6,15 @@ import cv2
 from typing import Type
 from tqdm import tqdm
 from time import time
-from src.data.utils import iterate_directories, generate_gaussian_heatmap, filter_by_screen_ts, parse_run_info
+from src.data.utils import iterate_directories, generate_gaussian_heatmap, filter_by_screen_ts, parse_run_info, pair
 
 
 class GroundTruthGenerator:
 
     def __init__(self, config):
         self.run_dir_list = iterate_directories(config["data_root"], track_names=config["track_name"])
+        if config["directory_index"] is not None:
+            self.run_dir_list = self.run_dir_list[int(config["directory_index"][0]):config["directory_index"][1]]
 
     def get_gt_info(self, run_dir, subject, run):
         raise NotImplementedError()
@@ -21,7 +23,7 @@ class GroundTruthGenerator:
         raise NotImplementedError()
 
     def generate(self):
-        for rd in self.run_dir_list[23:24]:
+        for rd in self.run_dir_list:
             self.compute_gt(rd)
 
 
@@ -211,6 +213,7 @@ class OpticalFlowFarneback(GroundTruthGenerator):
 
         # loop through all frames and compute the optical flow
         _, previous_frame = video_capture.read()
+        video_writer.write(np.zeros_like(previous_frame))
         hsv_representation = np.zeros_like(previous_frame)
         hsv_representation[..., 1] = 255
         previous_frame = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
@@ -435,6 +438,7 @@ if __name__ == "__main__":
                         choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt",
                                  "drone_state_frame_mean", "optical_flow"],
                         help="The method to use to compute the ground-truth.")
+    PARSER.add_argument("-di", "--directory_index", type=pair, default=None)
 
     # arguments only used for moving_window
     PARSER.add_argument("--mw_size", type=int, default=25,

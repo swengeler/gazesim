@@ -52,8 +52,8 @@ def train(config):
     validation_check = validation_check[1:]
 
     # loop over epochs
-    global_step = 0 if config["model_info"] else config["model_info"]["global_step"]
-    for epoch in range(0 if config["model_info"] is None else config["model_info"]["epoch"], config["num_epochs"]):
+    global_step = 0 if config["model_info"] is None else config["model_info"]["global_step"]
+    for epoch in range(0 if config["model_info"] is None else config["model_info"]["epoch"] + 1, config["num_epochs"]):
         print("Starting epoch {:03d}!".format(epoch))
         model.train()
         validation_current = 0

@@ -1,7 +1,7 @@
 import torch
 
 from src.training.loggers import ControlLogger
-from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset
+from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset, StateToControlDataset
 from src.models.c3d import C3DRegressor
 from src.models.codevilla import Codevilla, Codevilla300, CodevillaSkip, CodevillaMultiHead, CodevillaDualBranch
 from src.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetStateLargerRegressor, StateOnlyRegressor
@@ -42,7 +42,8 @@ def resolve_optimiser_class(optimiser_name):
 def get_outputs(dataset_name):
     return {
         "StackedImageToControlDataset": ["output_control"],
-        "ImageAndStateToControlDataset": ["output_control"]
+        "ImageAndStateToControlDataset": ["output_control"],
+        "StateToControlDataset": ["output_control"]
     }[dataset_name]
 
 
@@ -60,7 +61,8 @@ def get_valid_losses(dataset_name):
     """
     return {
         "StackedImageToControlDataset": {"output_control": ["mse"]},
-        "ImageAndStateToControlDataset": {"output_control": ["mse"]}
+        "ImageAndStateToControlDataset": {"output_control": ["mse"]},
+        "StateToControlDataset": {"output_control": ["mse"]}
     }[dataset_name]
 
 
@@ -96,21 +98,23 @@ def resolve_dataset_name(model_name):
         "resnet_state": "ImageAndStateToControlDataset",
         "resnet": "ImageToControlDataset",
         "resnet_larger": "ImageAndStateToControlDataset",
-        "state_only": "ImageAndStateToControlDataset"
+        "state_only": "StateToControlDataset"
     }[model_name]
 
 
 def resolve_dataset_class(dataset_name):
     return {
         "StackedImageToControlDataset": ImageToControlDataset,  # TODO: change this
-        "ImageAndStateToControlDataset": ImageAndStateToControlDataset
+        "ImageAndStateToControlDataset": ImageAndStateToControlDataset,
+        "StateToControlDataset": StateToControlDataset
     }[dataset_name]
 
 
 def resolve_logger_class(dataset_name):
     return {
         "StackedImageToControlDataset": ControlLogger,
-        "ImageAndStateToControlDataset": ControlLogger
+        "ImageAndStateToControlDataset": ControlLogger,
+        "StateToControlDataset": ControlLogger
     }[dataset_name]
 
 
@@ -126,12 +130,13 @@ def resolve_resize_parameters(model_name):
         "resnet_state": 300,
         "resnet": 300,
         "resnet_larger": 150,
-        "state_only": (1, 1)  # not sure if this will even work
+        "state_only": None
     }[model_name]
 
 
 def resolve_gt_name(dataset_name):
     return {
         "StackedImageToControlDataset": "drone_control_frame_mean_gt",
-        "ImageAndStateToControlDataset": "drone_control_frame_mean_gt"
+        "ImageAndStateToControlDataset": "drone_control_frame_mean_gt",
+        "StateToControlDataset": "drone_control_frame_mean_gt"
     }[dataset_name]

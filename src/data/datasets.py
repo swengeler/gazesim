@@ -574,6 +574,68 @@ class StackedImageToAttentionDataset(Dataset):
         return out
 
 
+class StateToControlDataset(Dataset):
+
+    def __init__(self, config, split):
+        super().__init__()
+        self.data_root = config["data_root"]
+        self.input_names = config["drone_state_names"]
+        self.output_name = config["ground_truth_name"]
+        self.output_columns = []
+        self.split = split
+
+        frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
+        split_index = pd.read_csv(config["split_config"] + ".csv")
+        frame_index["split"] = split_index
+
+        ground_truth = pd.read_csv(os.path.join(self.data_root, "index", f"{self.output_name}.csv"))
+        for col in ground_truth:
+            frame_index[col] = ground_truth[col]
+            self.output_columns.append(col)
+
+        drone_state = pd.read_csv(os.path.join(self.data_root, "index", "state.csv"))
+        for col in self.input_names:
+            frame_index[col] = drone_state[col]
+
+        self.index = frame_index[frame_index["split"] == self.split].copy()
+
+        self.index["label"] = 4
+        for idx, (track_name, half) in enumerate([("flat", "left_half"), ("flat", "right_half"),
+                                                  ("wave", "left_half"), ("wave", "right_half")]):
+            self.index.loc[(self.index["track_name"] == track_name) & (self.index[half] == 1), "label"] = idx
+
+    def __len__(self):
+        return len(self.index.index)
+
+    def __getitem__(self, item):
+        # get the information about the current item
+        current_row = self.index.iloc[item]
+        current_frame_index = current_row["frame"]
+        # current_run_dir = current_row["run_dir"]
+        current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
+                                                                        current_row["run"],
+                                                                        current_row["track_name"]))
+
+        # read the state input
+        state_input = self.index[self.input_names].iloc[item].values
+
+        # determine the "high level command" label for the sample
+        high_level_label = self.index["label"].iloc[item]
+
+        # extract the control GT from the dataframe
+        output = self.index[self.output_columns].iloc[item].values
+
+        # compile everything
+        out = {
+            "input_state": torch.from_numpy(state_input).float(),
+            "output_control": torch.from_numpy(output).float(),
+            "label_high_level": high_level_label
+        }
+
+        # return a dictionary
+        return out
+
+
 if __name__ == "__main__":
     test_config = {
         "data_root": os.getenv("GAZESIM_ROOT"),

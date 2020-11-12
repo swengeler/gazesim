@@ -10,7 +10,7 @@ class Codevilla(nn.Module):
     can be found at: https://www.github.com/merantix/imitation-learning
     """
 
-    def __init__(self, config=None):
+    def __init__(self, config):
         super().__init__()
 
         # image network, convolutional layers
@@ -101,8 +101,8 @@ class Codevilla(nn.Module):
 
 class CodevillaMultiHead(Codevilla):
 
-    def __init__(self, config=None):
-        super().__init__()
+    def __init__(self, config):
+        super().__init__(config)
 
         # image network, convolutional layers
         self.image_net_conv = nn.Sequential(
@@ -191,7 +191,7 @@ class CodevillaMultiHead(Codevilla):
 
 class CodevillaDualBranch(CodevillaMultiHead):
 
-    def __init__(self, config=None):
+    def __init__(self, config):
         super().__init__(config)
 
         # image network, convolutional layers
@@ -316,7 +316,7 @@ class CodevillaSkip(Codevilla):
     """
 
     def __init__(self, config=None):
-        super().__init__()
+        super().__init__(config)
 
     def forward(self, x):
         prev_image_x = x["input_image_0"]

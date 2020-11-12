@@ -23,7 +23,13 @@ def parse_config(args):
 
         # get the default values that may not be specified in the loaded config
         for k in config:
-            if k not in loaded_config:
+            # TODO: there should be some better way to override this,
+            #  maybe a list of parameters that should be overwritten?
+            #  => the problem might lie more in the fact that loading from a config file (e.g. for experiment
+            #  "specification" and loading from a model config file should probably be different things => in the
+            #  latter case we might not want to overwrite certain things (e.g. data input etc.) whereas the former
+            #  should just serve as an alternative input for parameters
+            if k not in loaded_config or loaded_config[k] is None:
                 loaded_config[k] = config[k]
         config = loaded_config
 
@@ -58,12 +64,17 @@ def parse_config(args):
     # determine the experiment name to save logs and checkpoints under
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if config["experiment_name"] is not None:
+        # TODO: if loading from model, should actually just continue...
         if re.search(r"\d\d-\d\d-\d\d_\d\d-\d\d-\d\d", config["experiment_name"]):
+            """
             if len(config["experiment_name"]) >= 18:
                 config["experiment_name"] = config["experiment_name"][18:]
             else:
                 config["experiment_name"] = ""
-        config["experiment_name"] = timestamp + ("_" if len(config["experiment_name"]) > 0 else "") + config["experiment_name"]
+            """
+            pass
+        else:
+            config["experiment_name"] = timestamp + ("_" if len(config["experiment_name"]) > 0 else "") + config["experiment_name"]
     else:
         config["experiment_name"] = timestamp
 
@@ -73,7 +84,7 @@ def parse_config(args):
         drone_state_names = []
         for sn in config["drone_state_names"]:
             if sn in COLUMNS_SHORTHAND_DICT:
-                drone_state_names.append(COLUMNS_SHORTHAND_DICT[sn])
+                drone_state_names.extend(COLUMNS_SHORTHAND_DICT[sn])
             elif sn in (COLUMNS_DRONE_VEL + COLUMNS_DRONE_ACC + COLUMNS_DRONE_ANG_VEL):
                 drone_state_names.append(sn)
     config["drone_state_names"] = drone_state_names
