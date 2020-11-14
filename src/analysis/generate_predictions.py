@@ -43,6 +43,10 @@ def generate(config):
     model = model.to(device)
     model.eval()
 
+    # some info for saving the predictions
+    experiment_name = train_config["experiment_name"][18:]
+    epoch = model_info["epoch"]
+
     for split in config["split"]:
         current_frame_index = frame_index.loc[split_index["split"] == split]
         current_dataset = resolve_dataset_class(train_config["dataset_name"])(train_config, split=split)
@@ -120,11 +124,10 @@ def generate(config):
 
         # save the dataframe to csv
         for rd, df in prediction_dict.items():
-            # TODO: maybe add experiment name here? or add epoch? or both?
             cd = os.path.join(save_dir, rd)
             if not os.path.exists(cd):
                 os.makedirs(cd)
-            df.to_csv(os.path.join(cd, "predictions.csv"), index=False)
+            df.to_csv(os.path.join(cd, "predictions_{}_e{:03d}.csv".format(experiment_name, epoch)), index=False)
 
 
 def parse_config(args):
