@@ -3,6 +3,7 @@ import json
 import torch
 
 from torch.utils.tensorboard import SummaryWriter
+from src.models.utils import image_softmax, convert_attention_to_image
 
 
 def save_config(config, config_save_path):
@@ -157,9 +158,11 @@ class AttentionLogger(Logger):
     def __init__(self, config, model, dataset):
         super().__init__(config, model, dataset)
 
-        self.total_loss_val_l1 = None
-        self.partial_losses_val_l1 = {}
+        self.total_loss_val_kl = None
+        self.partial_losses_val_kl = {}
         self.counter_val = 0
+
+        self.log_attention_val = True
 
     def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # log total loss
@@ -185,30 +188,44 @@ class AttentionLogger(Logger):
 
     def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # accumulate total loss
-        if self.total_loss_val_l1 is None:
-            self.total_loss_val_l1 = torch.zeros_like(total_loss)
-        self.total_loss_val_l1 += total_loss
+        if self.total_loss_val_kl is None:
+            self.total_loss_val_kl = torch.zeros_like(total_loss)
+        self.total_loss_val_kl += total_loss
 
         # accumulate partial losses
         for ln, l in partial_losses.items():
-            if ln not in self.partial_losses_val_l1:
-                self.partial_losses_val_l1[ln] = torch.zeros_like(l)
-            self.partial_losses_val_l1[ln] += l
+            if ln not in self.partial_losses_val_kl.items():
+                self.partial_losses_val_kl[ln] = torch.zeros_like(l)
+            self.partial_losses_val_kl[ln] += l
 
         self.counter_val += 1
+
+        if self.log_attention_val:
+            # get the original from the batch and the predictions and plot them
+            # probably only include the original of the uncropped attention map...
+            images_original = convert_attention_to_image(batch["original"]["output_attention"])
+            images_prediction = convert_attention_to_image(image_softmax(predictions["output_attention"]),
+                                                           out_shape=images_original.shape[2:])
+
+            self.tb_writer.add_images("attention/val/ground_truth", images_original, global_step, dataformats="NCHW")
+            self.tb_writer.add_images("attention/val/prediction", images_prediction, global_step, dataformats="NCHW")
+
+            self.log_attention_val = False
 
     def validation_epoch_end(self, global_step, epoch, model, optimiser):
         # TODO: also record a batch or so of original and predicted attention maps and save them
 
         # log total loss
-        self.tb_writer.add_scalar("loss/val/total/l1", self.total_loss_val_l1.item() / self.counter_val, global_step)
+        self.tb_writer.add_scalar("loss/val/total/kl", self.total_loss_val_kl.item() / self.counter_val, global_step)
 
         # log individual losses
-        for ln, l in self.partial_losses_val_l1:
-            self.tb_writer.add_scalar(f"loss/val/{ln}/l1", l.item() / self.counter_val, global_step)
+        for ln, l in self.partial_losses_val_kl.items():
+            self.tb_writer.add_scalar(f"loss/val/{ln}/kl", l.item() / self.counter_val, global_step)
 
         # reset the loss accumulators
-        self.total_loss_val_l1 = torch.zeros_like(self.total_loss_val_l1)
-        for ln, l in self.partial_losses_val_l1.items():
-            self.partial_losses_val_l1[ln] = torch.zeros_like(l)
+        self.total_loss_val_kl = torch.zeros_like(self.total_loss_val_kl)
+        for ln, l in self.partial_losses_val_kl.items():
+            self.partial_losses_val_kl[ln] = torch.zeros_like(l)
         self.counter_val = 0
+
+        self.log_attention_val = True

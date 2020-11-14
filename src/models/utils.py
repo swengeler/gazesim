@@ -32,7 +32,23 @@ def image_log_softmax(tensor):
     return _image_apply_function(tensor, F.log_softmax, dim=-1)
 
 
-def convert_attention_to_image(attention):
+def convert_attention_to_image(attention, out_shape=None):
+    assert len(attention.shape) == 4, \
+        "Tensor must have exactly 4 dimensions (batch, channel, height, width in some order)."
+
+    # make sure that we are not doing integer types (because of the division)
+    attention = attention.double()
+
+    # make sure all the dimensions are correct
+    if not attention.shape[1] == 3 and attention.shape[3] == 3:
+        attention = attention.permute(0, 3, 1, 2)
+
+    # resize the image if necessary
+    if out_shape is not None and (attention.shape[2] != out_shape[0] or attention.shape[3] != out_shape[1]):
+        attention = torch.nn.functional.interpolate(attention, out_shape)
+
+    # TODO: maybe also add color channels
+
     # divide by the maximum
     maximum = image_max(attention).unsqueeze(-1).unsqueeze(-1)
     return attention / maximum
