@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import torch
 
+from torch.utils.data._utils.collate import default_collate as to_batch
 from tqdm import tqdm
 from src.data.utils import find_contiguous_sequences, resolve_split_index_path, run_info_to_path
 from src.training.config import parse_config as parse_train_config
@@ -108,7 +109,8 @@ def generate(config):
                 frame = current_frame_index["frame"].iloc[index]
 
                 # read the current data sample
-                sample = to_device(current_dataset[index], device, make_batch=True)
+                sample = to_batch([current_dataset[index]])
+                sample = to_device(sample, device)
 
                 # get the predictions
                 prediction = model(sample)
