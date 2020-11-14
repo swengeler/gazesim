@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader
 
 from tqdm import tqdm
 from src.training.config import parse_config
-from src.training.helpers import to_device, resolve_model_class, resolve_dataset_class, resolve_optimiser_class
+from src.training.helpers import get_batch_size, to_device
+from src.training.helpers import resolve_model_class, resolve_dataset_class, resolve_optimiser_class
 from src.training.helpers import resolve_losses, resolve_output_processing_func, resolve_logger_class
 
 
@@ -65,23 +66,26 @@ def train(config):
             # forward pass, loss computation and backward pass
             optimiser.zero_grad()
             predictions = model(batch)
-            loss = None
+            total_loss = None
+            partial_losses = {}
             for output in predictions:
                 current_prediction = resolve_output_processing_func(output)(predictions[output])
                 current_loss = loss_functions[output](current_prediction, batch[output])
-                if loss is None:
-                    loss = current_loss
+                if total_loss is None:
+                    total_loss = current_loss
                 else:
-                    loss += current_loss
-            loss.backward()
+                    total_loss += current_loss
+                partial_losses[output] = total_loss
+            total_loss.backward()
             optimiser.step()
 
             with torch.no_grad():
-                global_step += batch[sorted(batch.keys())[0]].shape[0]
+                # global_step += batch[sorted(batch.keys())[0]].shape[0]
+                global_step += get_batch_size(batch)
 
                 # log at the end of each training step (each batch)
                 # scalar_loss = loss.item()
-                logger.training_step_end(global_step, loss, batch, predictions)
+                logger.training_step_end(global_step, total_loss, partial_losses, batch, predictions)
 
                 # do validation if it should be done
                 if (global_step - epoch * len(training_set)) >= validation_check[validation_current]:
@@ -91,24 +95,26 @@ def train(config):
                         disable = False
 
                     model.eval()
-                    for val_batch_index, val_batch in tqdm(enumerate(validation_generator), disable=disable):
+                    for val_batch_index, val_batch in tqdm(enumerate(validation_generator), disable=disable, total=len(validation_generator)):
                         # transfer to GPU
                         val_batch = to_device(val_batch, device)
 
                         # forward pass and loss computation
                         val_predictions = model(val_batch)
-                        val_loss = None
+                        total_val_loss = None
+                        partial_val_losses = {}
                         for output in val_predictions:
                             current_prediction = resolve_output_processing_func(output)(val_predictions[output])
                             current_loss = loss_functions[output](current_prediction, val_batch[output])
-                            if val_loss is None:
-                                val_loss = current_loss
+                            if total_val_loss is None:
+                                total_val_loss = current_loss
                             else:
-                                val_loss += current_loss
+                                total_val_loss += current_loss
+                            partial_val_losses[output] = current_loss
 
                         # tracking the loss in the logger
                         # val_scalar_loss = val_loss.item()
-                        logger.validation_step_end(global_step, val_loss, val_batch, val_predictions)
+                        logger.validation_step_end(global_step, total_val_loss, partial_val_losses, val_batch, val_predictions)
 
                     # log after the complete pass over the validation set
                     logger.validation_epoch_end(global_step, epoch, model, optimiser)
@@ -145,13 +151,12 @@ if __name__ == "__main__":
                         help="Config file to load parameters from.")
     parser.add_argument("-nn", "--no_normalisation", action="store_true",
                         help="Whether or not to normalise the (image) input data.")
-    parser.add_argument("-dt", "--dreyeve_transforms", action="store_true",
-                        help="Whether or not to apply transforms used in the DR(eye)VE paper.")
 
     # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str, default="codevilla",
                         choices=["codevilla", "c3d", "codevilla300", "codevilla_skip", "codevilla_multi_head",
-                                 "codevilla_dual_branch", "resnet_state", "resnet", "resnet_larger", "state_only"],
+                                 "codevilla_dual_branch", "resnet_state", "resnet", "resnet_larger", "state_only",
+                                 "dreyeve_branch"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,  # TODO: maybe adjust for dreyeve net
                         help="Path to load a model checkpoint from (including information about the "
@@ -177,6 +182,8 @@ if __name__ == "__main__":
                              "(and how many) it has. For now only one loss can be specified (no architecture "
                              "with multiple outputs/losses). If the wrong loss is supplied, it will be changed "
                              "automatically to the default loss for a given architecture/output type.")
+
+    # TODO: add loss weights for the dreyeve models
 
     # arguments related to logging information
     parser.add_argument("-lg", "--log_root", type=str, default=os.getenv("GAZESIM_LOG"),

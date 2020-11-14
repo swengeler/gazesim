@@ -92,6 +92,12 @@ def parse_config(args):
     # TODO: will have to check whether/where this is still needed
     config["ground_truth_name"] = resolve_gt_name(config["dataset_name"])
 
+    # dataset-specific stuff
+    config["dreyeve_transforms"] = True if "dreyeve" in config["model_name"] else False
+    config["stack_size"] = 16
+    # might want to allow user to set this if we use more flexible C3D architecture (or this
+    # could have different values if we use the stacked dataset for anything else but dreyeve)
+
     # which parser arguments to keep:
     # data_root
     # data_type => this would pretty much be taken care of by the selection of the split index file...

@@ -100,30 +100,35 @@ class SaliencyBranch(nn.Module):
         )
 
     def forward(self, x):
-        full_x = self.coarse_predictor(x["stack_full"])
-        print(full_x.shape)
+        # TODO: need some way to "tell" the current saliency branch that it should work with e.g. input_image_0,
+        #  not sure this is the best way but it should work without adding anything to the config or the like
+        if "input_image_0" in x:
+            x = x["input_image_0"]
+
+        full_x = self.coarse_predictor(x["stack"])
+        # print(full_x.shape)
         full_x = self.upsampling_coarse_to_fine(full_x)
-        print(full_x.shape)
-        full_x = torch.cat([full_x, x["image_full"]], dim=1)
-        print(full_x.shape)
+        # print(full_x.shape)
+        full_x = torch.cat([full_x, x["last_frame"]], dim=1)
+        # print(full_x.shape)
         full_x = self.conv_refine_0(full_x)
-        print(full_x.shape)
+        # print(full_x.shape)
         full_x = self.conv_refine_1(full_x)
-        print(full_x.shape)
+        # print(full_x.shape)
         full_x = self.conv_refine_2(full_x)
-        print(full_x.shape)
+        # print(full_x.shape)
         full_x = self.conv_refine_3(full_x)
-        print(full_x.shape)
-        print()
+        # print(full_x.shape)
+        # print()
 
         crop_x = self.coarse_predictor(x["stack_crop"])
-        print(crop_x.shape)
+        # print(crop_x.shape)
         crop_x = self.conv_output_crop(crop_x)
-        print(crop_x.shape)
+        # print(crop_x.shape)
 
         out = {
-            "full": full_x,
-            "crop": crop_x
+            "output_attention": full_x,
+            "output_attention_crop": crop_x
         }
         return out
 
@@ -165,9 +170,9 @@ if __name__ == "__main__":
     }
     """
     X = {
-        "stack_full": torch.zeros((1, 3, 16, 112, 112)).to(device),
+        "stack": torch.zeros((1, 3, 16, 112, 112)).to(device),
         "stack_crop": torch.zeros((1, 3, 16, 112, 112)).to(device),
-        "image_full": torch.zeros((1, 3, 448, 448)).to(device)
+        "last_frame": torch.zeros((1, 3, 448, 448)).to(device)
     }
 
     net = SaliencyBranch({}).to(device)

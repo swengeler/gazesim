@@ -48,10 +48,8 @@ def generate(config):
         current_dataset = resolve_dataset_class(train_config["dataset_name"])(train_config, split=split)
         sequences = find_contiguous_sequences(current_frame_index, new_index=True)
 
-        test = list(current_frame_index.groupby(["track_name", "subject", "run"]).count().index)
+        # test = list(current_frame_index.groupby(["track_name", "subject", "run"]).count().index)
         # could loop through the above, get stuff separately, get indices from current_frame_index...
-        print(test)
-        exit()
         
         columns_gt = [c + "_gt" for c in current_dataset.output_columns]
         columns_pred = [c + "_pred" for c in current_dataset.output_columns]
@@ -72,6 +70,28 @@ def generate(config):
             run_dirs = [run_dirs[i] for i in range(len(run_dirs)) if check[i]]
 
         # TODO: will probably have to change this, so that not only left/right curve are included...?
+        """
+        for track_name, subject, run in tqdm(test):
+            hmm = current_frame_index[(current_frame_index["subject"] == subject) & (current_frame_index["run"] == run)]
+
+            # get the directory
+            rel_run_dir = run_info_to_path(subject, run, track_name)
+            run_dir = os.path.join(save_dir, rel_run_dir)
+
+            # load the screen timestamp file
+            df_screen = pd.read_csv(os.path.join(config["data_root"], rel_run_dir, "screen_timestamps.csv"))
+            df_pred = df_screen[["ts", "frame"]].copy()
+            # df_pred = df_pred.set_index("frame")
+
+            # loop through all frames?? and find their index in the current_frame_index?
+            # maybe better to reset its index, further slice current_frame_index and then figure out which indices
+            # we need from the dataframe?
+            for i in range(len(df_pred.index)):
+                print(hmm["frame"])
+                ds_index = hmm.index[hmm["frame"] == df_pred["frame"].iloc[i]]
+                print(ds_index)
+                exit()
+        """
 
         for (start_index, end_index), run_dir in tqdm(zip(sequences, run_dirs), disable=False, total=len(sequences)):
             if run_dir not in prediction_dict:

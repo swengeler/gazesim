@@ -7,26 +7,9 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-from tqdm import tqdm
 from src.data.utils import get_indexed_reader, resolve_split_index_path, run_info_to_path
-from src.data.constants import STATISTICS, HIGH_LEVEL_COMMAND_LABEL
-
-
-class ImageToAttentionMap(object):
-
-    def __call__(self, sample):
-        # for now always expects numpy array (and respective dimension for the colour channels)
-        return sample[:, :, 0]
-
-
-class MakeValidDistribution(object):
-
-    def __call__(self, sample):
-        # expects torch tensor with
-        pixel_sum = torch.sum(sample, [])
-        if pixel_sum > 0.0:
-            sample = sample / pixel_sum
-        return sample
+from src.data.transforms import MakeValidDistribution, ImageToAttentionMap, ManualRandomCrop
+from src.data.constants import STATISTICS
 
 
 class ImageDataset(Dataset):
@@ -419,11 +402,14 @@ class StackedImageToAttentionDataset(Dataset):
                         "std": STATISTICS["std"][i]
                     }
 
-        if config["dreyeve_transforms"]:
+        self.random_crop = None
+        if self.dreyeve_transforms:
             # define the following transforms
             # - loaded stack to 112x112
             # - load last frame to 448x448
             # - loaded stack to 256x256 => random crop to 112x112
+            self.random_crop = ManualRandomCrop((256, 256), (112, 112))
+
             self.input_transforms = {
                 "stack": [transforms.Compose([
                     transforms.ToPILImage(),
@@ -433,34 +419,65 @@ class StackedImageToAttentionDataset(Dataset):
                 ]) for i in self.input_names],
                 "stack_crop": [transforms.Compose([
                     transforms.ToPILImage(),
+                    transforms.Resize((256, 256)),
+                    self.random_crop,
+                    transforms.ToTensor(),
+                    transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"]),
+                ]) for i in self.input_names],
+                "last_frame": [transforms.Compose([
+                    transforms.ToPILImage(),
                     transforms.Resize((448, 448)),
                     transforms.ToTensor(),
                     transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
                 ]) for i in self.input_names],
-                "last_frame": [transforms.Compose([
+            }
+
+            self.output_transforms = {
+                "stack": transforms.Compose([
+                    ImageToAttentionMap(),
+                    transforms.ToPILImage(),
+                    transforms.Resize((448, 448)),
+                    transforms.ToTensor(),
+                    MakeValidDistribution()
+                ]),
+                "stack_crop": transforms.Compose([
+                    ImageToAttentionMap(),
                     transforms.ToPILImage(),
                     transforms.Resize((256, 256)),
+                    self.random_crop,
                     transforms.ToTensor(),
-                    transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"]),
-                    transforms.RandomCrop((112, 112))
-                ]) for i in self.input_names],
+                    MakeValidDistribution(),
+                    # TODO: really not sure if this is proper to do (in general and particularly in this case
+                    #  - in general: might actually want to learn to predict in such a way that (usually) the
+                    #    upscaled output is close-ish to a valid distribution, which it might not even be if
+                    #    the small version is already one
+                    #  - here specifically: this might actually make problems because there will be cases where
+                    #    every value is 0 and maybe cases where very few values will be non-zero => in the latter
+                    #    case these values would be adjusted to be very high and I'm unsure if that's a good thing
+                    #  - on the other hand: not sure if KL-divergence works (not just conceptually, but also
+                    #    in practice) if this isn't properly normalised => if it doesn't work in practice, might
+                    #    still want to consider not doing this normalisation when using MSE (if that ever happens)
+                ])
             }
         else:
             # just a simple transform for every frame
-            self.input_transforms = [transforms.Compose([
-                transforms.ToPILImage(),
-                transforms.Resize(config["resize"]),
-                transforms.ToTensor(),
-                transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
-            ]) for i in self.input_names]
-
-        self.output_transform = transforms.Compose([
-            ImageToAttentionMap(),
-            transforms.ToPILImage(),
-            transforms.Resize(config["resize"]),
-            transforms.ToTensor(),
-            MakeValidDistribution()
-        ])
+            self.input_transforms = {
+                "stack": [transforms.Compose([
+                    transforms.ToPILImage(),
+                    transforms.Resize(config["resize"]),
+                    transforms.ToTensor(),
+                    transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
+                ]) for i in self.input_names]
+            }
+            self.output_transforms = {
+                "stack": transforms.Compose([
+                    ImageToAttentionMap(),
+                    transforms.ToPILImage(),
+                    transforms.Resize(config["resize"]),
+                    transforms.ToTensor(),
+                    MakeValidDistribution(),
+                ])
+            }
         # TODO: MIGHT NEED TO ADD ADDITIONAL STREAM/TRANSFORM/WHATEVER FOR
         #  THE CROPPED STREAM OF THE COARSE-REFINE ARCHITECTURE
 
@@ -513,10 +530,11 @@ class StackedImageToAttentionDataset(Dataset):
             total_num_frame_stacks += num_frame_stacks
 
     def __len__(self):
-        return len(self.index.index)
+        return self.index["stack_index"].max() + 1
 
     def __getitem__(self, item):
         # get the information about the current item
+        # TODO: maybe just change the index of the dataframe? might make this particular step easier
         current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
         # current_run_dir = self.index["run_dir"].iloc[current_stack_index]
         current_stack_df = self.index.iloc[(current_stack_index - self.stack_size + 1):(current_stack_index + 1)]
@@ -529,46 +547,62 @@ class StackedImageToAttentionDataset(Dataset):
         if current_run_dir not in self.video_readers:
             # print(os.path.join(current_run_dir, f"{self.video_input_names[1]}.mp4"))
             self.video_readers[current_run_dir] = {
-                f"input_stack_{idx}": get_indexed_reader(os.path.join(current_run_dir, f"{i}.mp4"))
+                f"input_image_{idx}": get_indexed_reader(os.path.join(current_run_dir, f"{i}.mp4"))
                 for idx, i in enumerate(self.input_names)
             }
             self.video_readers[current_run_dir]["output_attention"] = get_indexed_reader(os.path.join(
                 current_run_dir, f"{self.output_name}.mp4"))
 
+        # prepare new "crop parameters" to get a random crop consistent across different tensors
+        if self.random_crop is not None:
+            self.random_crop.update()
+
         # read the frames
-        inputs = [[] for _ in self.input_names]
-        inputs_original = [[] for _ in self.input_names]
+        inputs = [{k: [] for k in self.input_transforms} for _ in self.input_names]
+        # inputs_original = [{} for _ in self.input_names]
         for idx, _ in enumerate(self.input_names):
-            for _, row in current_stack_df.iterrows():
-                # TODO: need to re-add the thing
-                frame = self.video_readers[current_run_dir][f"input_stack_{idx}"][row["frame"]]
-                frame_original = frame.copy()
+            for in_stack_idx, (_, row) in enumerate(current_stack_df.iterrows()):
+                frame = self.video_readers[current_run_dir][f"input_image_{idx}"][row["frame"]]
+                # frame_original = frame.copy()
 
                 # apply input transform here already
-                # TODO: transforms for DREYEVE stuff
-                frame = self.input_transforms[idx](frame)
-
-                inputs[idx].append(frame)
-                inputs_original[idx].append(frame_original)
+                for k in self.input_transforms:
+                    # TODO: for stack_crop, need to store random crop parameters and also apply them to the output
+                    #  for that image... => any point in rethinking how transforms are applied? e.g. having custom
+                    #  class (e.g. DrEYEveTransform) that applies everything, including the correct random crop
+                    #  (see here: https://pytorch.org/tutorials/beginner/data_loading_tutorial.html)
+                    if k != "last_frame":
+                        inputs[idx][k].append(self.input_transforms[k][idx](frame))
+                    elif in_stack_idx == self.stack_size - 1:
+                        inputs[idx][k] = self.input_transforms[k][idx](frame)
+                # frame = self.input_transforms[idx](frame)
+                # inputs[idx].append(frame)
+                # inputs_original[idx].append(frame_original)
 
             # stack the frames
-            # TODO: not sure if this is actually the right dimension to stack them in
-            inputs[idx] = torch.stack(inputs[idx], 1)
-            inputs_original[idx] = np.stack(inputs_original[idx], 0)
+            for k in self.input_transforms:
+                if k != "last_frame":
+                    inputs[idx][k] = torch.stack(inputs[idx][k], 1)
+            # inputs[idx] = torch.stack(inputs[idx], 1)
+            # inputs_original[idx] = np.stack(inputs_original[idx], 0)
 
         output = self.video_readers[current_run_dir]["output_attention"][current_frame_index]
 
         # start constructing the output dictionary => keep the original frames in there
         # out = {"original": {f"input_stack_{idx}": np.array(i.copy()) for idx, i in enumerate(inputs)}}
         out = {"original": {}}
-        for idx, _ in enumerate(self.input_names):
-            out["original"][f"input_stack_{idx}"] = np.array(inputs_original[idx])
+        # for idx, _ in enumerate(self.input_names):
+        #     out["original"][f"input_stack_{idx}"] = np.array(inputs_original[idx])
         out["original"]["output_attention"] = np.array(output)
 
         # apply transform only for the output
         for idx, i in enumerate(inputs):
-            out[f"input_stack_{idx}"] = i
-        out["output_attention"] = self.output_transform(output)
+            out[f"input_image_{idx}"] = i
+        # out["output_attention"] = {k: self.output_transforms[k](output) for k in self.output_transforms}
+        # TODO: this is very ugly right now, need to figure out some way to change it
+        out["output_attention"] = self.output_transforms["stack"](output)
+        if self.dreyeve_transforms:
+            out["output_attention_crop"] = self.output_transforms["stack_crop"](output)
 
         # return a dictionary
         return out
@@ -639,22 +673,31 @@ class StateToControlDataset(Dataset):
 if __name__ == "__main__":
     test_config = {
         "data_root": os.getenv("GAZESIM_ROOT"),
-        "input_video_names": ["screen", "hard_mask_moving_window_frame_mean_gt"],
+        "input_video_names": ["screen"],
         "ground_truth_name": "moving_window_frame_mean_gt",  # "drone_control_frame_mean_gt",
         "drone_state_names": ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ"],
-        "resize": 150,
-        "split_config": resolve_split_index_path(10, data_root=os.getenv("GAZESIM_ROOT")),
-        "stack_size": 4
+        "resize": 122,
+        "split_config": resolve_split_index_path(11, data_root=os.getenv("GAZESIM_ROOT")),
+        "stack_size": 4,
+        "dreyeve_transforms": True,
+        "no_normalisation": False
     }
 
     dataset = StackedImageToAttentionDataset(test_config, split="train")
     print(len(dataset))
-    print(dataset.index.columns)
+    # print(dataset.index.columns)
 
     sample = dataset[0]
-    print(sample.keys())
-    print(sample["original"].keys())
+    print("sample:", sample.keys())
 
-    print(sample["input_stack_0"].shape)
-    print(sample["input_stack_1"].shape)
-    print(sample["output_attention"].shape)
+    print("\ninput_image_0:", sample["input_image_0"].keys())
+    for k, v in sample["input_image_0"].items():
+        print(f"{k}: {v.shape}")
+
+    # print("\ninput_image_1:", sample["input_image_1"].keys())
+    # for k, v in sample["input_image_1"].items():
+    #     print(f"{k}: {v.shape}")
+
+    print("\noutput_attention:", sample["output_attention"].keys())
+    for k, v in sample["output_attention"].items():
+        print(f"{k}: {v.shape}")

@@ -37,7 +37,7 @@ class Logger:
         self.config = config
         save_config(self.config, os.path.join(self.log_dir, "config.json"))
 
-    def training_step_end(self, global_step, loss, batch, predictions):
+    def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # to be called when a single training step (1 batch) is performed
         raise NotImplementedError()
 
@@ -45,13 +45,28 @@ class Logger:
         # to be called after each full pass over the training set
         raise NotImplementedError()
 
-    def validation_step_end(self, global_step, loss, batch, predictions):
+    def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # to be called when a single validation step (1 batch) is performed
         raise NotImplementedError()
 
     def validation_epoch_end(self, global_step, epoch, model, optimiser):
         # to be called after each full pass over the validation set
         raise NotImplementedError()
+
+
+class TestLogger(Logger):
+
+    def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        pass
+
+    def training_epoch_end(self, global_step, epoch, model, optimiser):
+        pass
+
+    def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        pass
+
+    def validation_epoch_end(self, global_step, epoch, model, optimiser):
+        pass
 
 
 class ControlLogger(Logger):
@@ -66,9 +81,9 @@ class ControlLogger(Logger):
         self.individual_losses_val_l1 = None
         self.counter_val = 0
 
-    def training_step_end(self, global_step, loss, batch, predictions):
+    def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # log total loss
-        self.tb_writer.add_scalar("loss/train/total/mse", loss.item(), global_step)
+        self.tb_writer.add_scalar("loss/train/total/mse", total_loss.item(), global_step)
 
         # determine individual losses
         individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_control"],
@@ -92,7 +107,7 @@ class ControlLogger(Logger):
             }, os.path.join(self.checkpoint_dir, "epoch{:03d}.pt".format(epoch)))
             print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, self.checkpoint_dir))
 
-    def validation_step_end(self, global_step, loss, batch, predictions):
+    def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # determine individual losses
         individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_control"],
                                                              batch["output_control"],
@@ -105,9 +120,9 @@ class ControlLogger(Logger):
 
         # accumulate total loss
         if self.total_loss_val_mse is None:
-            self.total_loss_val_mse = torch.zeros_like(loss)
-            self.total_loss_val_l1 = torch.zeros_like(loss)
-        self.total_loss_val_mse += loss
+            self.total_loss_val_mse = torch.zeros_like(total_loss)
+            self.total_loss_val_l1 = torch.zeros_like(total_loss)
+        self.total_loss_val_mse += total_loss
         self.total_loss_val_l1 += torch.mean(individual_losses_l1)
 
         # accumulate individual losses
@@ -142,14 +157,58 @@ class AttentionLogger(Logger):
     def __init__(self, config, model, dataset):
         super().__init__(config, model, dataset)
 
-    def training_step_end(self, global_step, loss, batch, predictions):
-        pass
+        self.total_loss_val_l1 = None
+        self.partial_losses_val_l1 = {}
+        self.counter_val = 0
+
+    def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        # log total loss
+        # TODO: maybe the loss "type" shouldn't be hard-coded
+        self.tb_writer.add_scalar("loss/train/total/kl", total_loss.item(), global_step)
+
+        # if len(partial_losses) > 1:
+        # log the partial losses
+        for ln, l in partial_losses.items():
+            self.tb_writer.add_scalar(f"loss/train/{ln}/kl", l.item(), global_step)
 
     def training_epoch_end(self, global_step, epoch, model, optimiser):
-        pass
+        # save model checkpoint
+        if (epoch + 1) % self.config["checkpoint_frequency"] == 0:
+            torch.save({
+                "global_step": global_step,
+                "epoch": epoch,
+                "model_name": self.config["model_name"],
+                "model_state_dict": model.state_dict(),
+                "optimiser_state_dict": optimiser.state_dict()
+            }, os.path.join(self.checkpoint_dir, "epoch{:03d}.pt".format(epoch)))
+            print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, self.checkpoint_dir))
 
-    def validation_step_end(self, global_step, loss, batch, predictions):
-        pass
+    def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        # accumulate total loss
+        if self.total_loss_val_l1 is None:
+            self.total_loss_val_l1 = torch.zeros_like(total_loss)
+        self.total_loss_val_l1 += total_loss
+
+        # accumulate partial losses
+        for ln, l in partial_losses.items():
+            if ln not in self.partial_losses_val_l1:
+                self.partial_losses_val_l1[ln] = torch.zeros_like(l)
+            self.partial_losses_val_l1[ln] += l
+
+        self.counter_val += 1
 
     def validation_epoch_end(self, global_step, epoch, model, optimiser):
-        pass
+        # TODO: also record a batch or so of original and predicted attention maps and save them
+
+        # log total loss
+        self.tb_writer.add_scalar("loss/val/total/l1", self.total_loss_val_l1.item() / self.counter_val, global_step)
+
+        # log individual losses
+        for ln, l in self.partial_losses_val_l1:
+            self.tb_writer.add_scalar(f"loss/val/{ln}/l1", l.item() / self.counter_val, global_step)
+
+        # reset the loss accumulators
+        self.total_loss_val_l1 = torch.zeros_like(self.total_loss_val_l1)
+        for ln, l in self.partial_losses_val_l1.items():
+            self.partial_losses_val_l1[ln] = torch.zeros_like(l)
+        self.counter_val = 0
