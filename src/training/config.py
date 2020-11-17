@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import torch
@@ -7,6 +8,33 @@ from src.data.utils import resolve_split_index_path
 from src.training.helpers import resolve_dataset_name, resolve_resize_parameters, get_outputs, get_valid_losses, resolve_gt_name
 
 
+DEFAULT_VALUES = {
+    "data_root": os.getenv("GAZESIM_ROOT"),
+    "split_config": 0,
+    "input_video_names": ["screen"],
+    "drone_state_names": ["all"],
+    "ground_truth_name": "moving_window_mean_frame_gt",
+    "config_file": None,
+    "no_normalisation": False,
+
+    "model_name": "codevilla_multi_head",
+    "model_load_path": None,
+
+    "gpu": 0,
+    "torch_seed": 127,
+    "num_workers": 4,
+    "batch_size": 128,
+    "num_epochs": 5,
+    "optimiser": "adam",
+    "learning_rate": 0.0001,
+    "losses": ["mse"],
+
+    "log_root": os.getenv("GAZESIM_LOG"),
+    "experiment_name": None,
+    "validation_frequency": 1,
+    "checkpoint_frequency": 1
+}
+
 COLUMNS_DRONE_VEL = ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ"]
 COLUMNS_DRONE_ACC = ["DroneAccelerationX", "DroneAccelerationY", "DroneAccelerationZ"]
 COLUMNS_DRONE_ANG_VEL = ["DroneAngularX", "DroneAngularY", "DroneAngularZ"]
@@ -14,12 +42,26 @@ COLUMNS_SHORTHAND_DICT = {"vel": COLUMNS_DRONE_VEL, "acc": COLUMNS_DRONE_ACC, "a
 
 
 def parse_config(args):
+    # 0. get the initial config dictionary
     config = args if isinstance(args, dict) else vars(args)
+
+    # check if a config file has been specified and load the values from that config file
+    # unless one has already been specified as a CLI parameter (i.e. the value is not None)
     if config["config_file"] is not None:
         # load the config file
-        # TODO: should there be something similar to the split index files going on, i.e. different configs
         with open(config["config_file"], "r") as f:
             loaded_config = json.load(f)
+
+        # go through the values in the loaded config
+        for k in loaded_config:
+            if k in config and config[k] is None:
+                config[k] = loaded_config[k]
+
+        """
+        # TODO:
+        #  - separate functionality of having a config file for running the script and loading a model
+        #  - maybe just introduce the default values here instead of in the argparse definition
+        #    => that way it would be easy to check if e.g. something from the config file should override?
 
         # get the default values that may not be specified in the loaded config
         for k in config:
@@ -32,6 +74,12 @@ def parse_config(args):
             if k not in loaded_config or loaded_config[k] is None:
                 loaded_config[k] = config[k]
         config = loaded_config
+        """
+
+    # replace all the unspecified values with the default ones
+    for k in config:
+        if config[k] is None:
+            config[k] = DEFAULT_VALUES[k]
 
     # config entries related to the data to load
     config["split_config"] = resolve_split_index_path(config["split_config"], data_root=config["data_root"])
@@ -39,6 +87,7 @@ def parse_config(args):
     # config entries related to the model
     config["model_info"] = None
     if config["model_load_path"] is not None:
+        # TODO: also adapt for loading partial models
         # for now assume that all relevant information is given
         model_info = torch.load(config["model_load_path"], map_location="cuda:{}".format(config["gpu"]))
         config["model_info"] = model_info

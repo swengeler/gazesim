@@ -2,6 +2,12 @@ import torch
 import torch.nn as nn
 
 
+class LoadableModule(nn.Module):
+
+    def load_model_info(self, model_info_dict):
+        self.load_state_dict(model_info_dict["model_state_dict"])
+
+
 class ControlActivationLayer(nn.Module):
 
     def forward(self, x):

@@ -2,10 +2,10 @@ import torch
 import torch.nn as nn
 
 from torchsummary import summary
-from src.models.layers import ControlActivationLayer
+from src.models.layers import ControlActivationLayer, LoadableModule
 
 
-class C3DRegressor(nn.Module):
+class C3DRegressor(LoadableModule):
     """
     Based on the implementation in this repository: https://github.com/hermanprawiro/c3d-extractor-pytorch
     (although identical ones can be found in other GitHub repositories; this seems to be the earliest I could find).
@@ -73,7 +73,63 @@ class C3DRegressor(nn.Module):
         probabilities = self.final_activation(logits)
 
         return probabilities
-        # return h
+
+
+class C3DStateRegressor(C3DRegressor):
+    """
+    Based on the implementation in this repository: https://github.com/hermanprawiro/c3d-extractor-pytorch
+    (although identical ones can be found in other GitHub repositories; this seems to be the earliest I could find).
+    """
+
+    def __init__(self, config=None):
+        super().__init__()
+
+        self.conv_fc_0 = nn.Linear(8192, 1024)
+        self.conv_fc_1 = nn.Linear(1024, 512)
+
+        self.state_fc_0 = nn.Linear(9, 256)
+        self.state_fc_1 = nn.Linear(256, 256)
+
+        self.combined_fc_0 = nn.Linear(512 + 256, 4)
+
+        self.dropout = nn.Dropout(p=0.5)
+
+        self.relu = nn.ReLU()
+        self.final_activation = ControlActivationLayer()
+
+    def forward(self, x):
+        image_x = self.relu(self.conv1(x["input_image_0"]["stack"]))
+        image_x = self.pool1(image_x)
+
+        image_x = self.relu(self.conv2(image_x))
+        image_x = self.pool2(image_x)
+
+        image_x = self.relu(self.conv3a(image_x))
+        image_x = self.relu(self.conv3b(image_x))
+        image_x = self.pool3(image_x)
+
+        image_x = self.relu(self.conv4a(image_x))
+        image_x = self.relu(self.conv4b(image_x))
+        image_x = self.pool4(image_x)
+
+        image_x = self.relu(self.conv5a(image_x))
+        image_x = self.relu(self.conv5b(image_x))
+        image_x = self.pool5(image_x)
+
+        image_x = image_x.reshape(image_x.size(0), -1)
+        image_x = self.relu(self.dropout(self.conv_fc_0(image_x)))
+        image_x = self.relu(self.dropout(self.conv_fc_1(image_x)))
+
+        state_x = self.relu(self.dropout(self.state_fc_0(x["input_state"])))
+        state_x = self.relu(self.dropout(self.state_fc_1(state_x)))
+
+        combined_x = torch.cat([image_x, state_x], dim=-1)
+
+        logits = self.combined_fc_0(combined_x)
+        probabilities = self.final_activation(logits)
+
+        out = {"output_control": probabilities}
+        return out
 
 
 if __name__ == "__main__":
@@ -82,8 +138,13 @@ if __name__ == "__main__":
 
     tensor = torch.zeros((1, 3, 16, 112, 112)).to(device)
 
-    net = C3DRegressor().to(device)
-    out = net(tensor)
-    print(out.shape)
+    X = {
+        "input_image_0": {"stack": torch.zeros((1, 3, 16, 112, 112)).to(device)},
+        "input_state": torch.zeros((1, 9)).to(device)
+    }
+
+    net = C3DStateRegressor().to(device)
+    out = net(X)
+    print(out["output_control"].shape)
 
     # summary(net, (3, 16, 300, 400), batch_size=1)

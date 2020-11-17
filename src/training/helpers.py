@@ -2,11 +2,11 @@ import numpy as np
 import torch
 
 from src.training.loggers import ControlLogger, TestLogger, AttentionLogger
-from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset, StateToControlDataset
+from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset, StateToControlDataset, StackedImageAndStateToControlDataset
 from src.data.datasets import StackedImageToAttentionDataset
-from src.models.c3d import C3DRegressor
+from src.models.c3d import C3DRegressor, C3DStateRegressor
 from src.models.codevilla import Codevilla, Codevilla300, CodevillaSkip, CodevillaMultiHead, CodevillaDualBranch
-from src.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetStateLargerRegressor, StateOnlyRegressor
+from src.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetStateLargerRegressor, StateOnlyRegressor, ResNetLargerRegressor
 from src.models.dreyeve import SaliencyBranch, DrEYEveNet
 from src.models.utils import image_log_softmax
 
@@ -37,6 +37,7 @@ def to_device(batch, device, make_batch=False):
 def resolve_model_class(model_name):
     return {
         "c3d": C3DRegressor,
+        "c3d_state": C3DStateRegressor,
         "codevilla": Codevilla,
         "codevilla300": Codevilla300,
         "codevilla_skip": CodevillaSkip,
@@ -44,7 +45,8 @@ def resolve_model_class(model_name):
         "codevilla_dual_branch": CodevillaDualBranch,
         "resnet_state": ResNetStateRegressor,
         "resnet": ResNetRegressor,
-        "resnet_larger": ResNetStateLargerRegressor,
+        "resnet_larger": ResNetLargerRegressor,
+        "resnet_state_larger": ResNetStateLargerRegressor,
         "state_only": StateOnlyRegressor,
         "dreyeve_branch": SaliencyBranch
     }[model_name]
@@ -59,6 +61,8 @@ def resolve_optimiser_class(optimiser_name):
 def get_outputs(dataset_name):
     return {
         "StackedImageToControlDataset": ["output_control"],
+        "StackedImageAndStateToControlDataset": ["output_control"],
+        "ImageToControlDataset": ["output_control"],
         "ImageAndStateToControlDataset": ["output_control"],
         "StateToControlDataset": ["output_control"],
         "StackedImageToAttentionDataset": ["output_attention", "output_attention_crop"]
@@ -71,6 +75,8 @@ def get_valid_losses(dataset_name):
     # second level: what are the valid losses one can choose? (e.g. KL-div, MSE for attention)
     return {
         "StackedImageToControlDataset": {"output_control": ["mse"]},
+        "StackedImageAndStateToControlDataset": {"output_control": ["mse"]},
+        "ImageToControlDataset": {"output_control": ["mse"]},
         "ImageAndStateToControlDataset": {"output_control": ["mse"]},
         "StateToControlDataset": {"output_control": ["mse"]},
         "StackedImageToAttentionDataset": {"output_attention": ["kl", "mse"], "output_attention_crop": ["kl", "mse"]}
@@ -104,6 +110,7 @@ def resolve_output_processing_func(output_name):
 def resolve_dataset_name(model_name):
     return {
         "c3d": "StackedImageToControlDataset",
+        "c3d_state": "StackedImageAndStateToControlDataset",
         "codevilla": "ImageAndStateToControlDataset",
         "codevilla300": "ImageAndStateToControlDataset",
         "codevilla_skip": "ImageAndStateToControlDataset",
@@ -111,7 +118,8 @@ def resolve_dataset_name(model_name):
         "codevilla_dual_branch": "ImageAndStateToControlDataset",
         "resnet_state": "ImageAndStateToControlDataset",
         "resnet": "ImageToControlDataset",
-        "resnet_larger": "ImageAndStateToControlDataset",
+        "resnet_larger": "ImageToControlDataset",
+        "resnet_state_larger": "ImageAndStateToControlDataset",
         "state_only": "StateToControlDataset",
         "dreyeve_branch": "StackedImageToAttentionDataset"
     }[model_name]
@@ -120,6 +128,8 @@ def resolve_dataset_name(model_name):
 def resolve_dataset_class(dataset_name):
     return {
         "StackedImageToControlDataset": ImageToControlDataset,  # TODO: change this
+        "StackedImageAndStateToControlDataset": StackedImageAndStateToControlDataset,
+        "ImageToControlDataset": ImageToControlDataset,
         "ImageAndStateToControlDataset": ImageAndStateToControlDataset,
         "StateToControlDataset": StateToControlDataset,
         "StackedImageToAttentionDataset": StackedImageToAttentionDataset
@@ -129,6 +139,8 @@ def resolve_dataset_class(dataset_name):
 def resolve_logger_class(dataset_name):
     return {
         "StackedImageToControlDataset": ControlLogger,
+        "StackedImageAndStateToControlDataset": ControlLogger,
+        "ImageToControlDataset": ControlLogger,
         "ImageAndStateToControlDataset": ControlLogger,
         "StateToControlDataset": ControlLogger,
         "StackedImageToAttentionDataset": AttentionLogger
@@ -139,6 +151,7 @@ def resolve_resize_parameters(model_name):
     # TODO: might be better to have something more flexible to experiment with different sizes?
     return {
         "c3d": (122, 122),
+        "c3d_state": (122, 122),
         "codevilla": 150,
         "codevilla300": 300,
         "codevilla_skip": 150,
@@ -147,6 +160,7 @@ def resolve_resize_parameters(model_name):
         "resnet_state": 300,
         "resnet": 300,
         "resnet_larger": 150,
+        "resnet_state_larger": 150,
         "state_only": None,
         "dreyeve_branch": None
     }[model_name]
@@ -155,6 +169,8 @@ def resolve_resize_parameters(model_name):
 def resolve_gt_name(dataset_name):
     return {
         "StackedImageToControlDataset": "drone_control_frame_mean_gt",
+        "StackedImageAndStateToControlDataset": "drone_control_frame_mean_gt",
+        "ImageToControlDataset": "drone_control_frame_mean_gt",
         "ImageAndStateToControlDataset": "drone_control_frame_mean_gt",
         "StateToControlDataset": "drone_control_frame_mean_gt",
         "StackedImageToAttentionDataset": "moving_window_frame_mean_gt"

@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 
-from src.models.layers import ControlActivationLayer
+from src.models.layers import ControlActivationLayer, LoadableModule
 
 
-class Codevilla(nn.Module):
+class Codevilla(LoadableModule):
     """
     Based on "End-to-end Driving via Conditional Imitation Learning", specifically a TensorFlow implementation that
     can be found at: https://www.github.com/merantix/imitation-learning

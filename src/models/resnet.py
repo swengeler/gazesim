@@ -3,10 +3,10 @@ import torch.nn as nn
 import torchvision.models as models
 
 from torchsummary import summary
-from src.models.layers import ControlActivationLayer
+from src.models.layers import ControlActivationLayer, LoadableModule
 
 
-class ResNet18BaseModel(nn.Module):
+class ResNet18BaseModel(LoadableModule):
 
     def __init__(self, module_transfer_depth=7, transfer_weights=True):
         super().__init__()
@@ -46,7 +46,7 @@ class ResNet18BaseModel(nn.Module):
         return x
 
 
-class ResNet18BaseModelSimple(nn.Module):
+class ResNet18BaseModelSimple(LoadableModule):
 
     def __init__(self, module_transfer_depth=6, transfer_weights=True):
         super().__init__()
@@ -85,7 +85,7 @@ class ResNet18BaseModelSimple(nn.Module):
         return x
 
 
-class ResNet18Regressor(nn.Module):
+class ResNet18Regressor(LoadableModule):
 
     def __init__(self, module_transfer_depth=7, transfer_weights=True):
         super().__init__()
@@ -118,7 +118,7 @@ class ResNet18Regressor(nn.Module):
         return x
 
 
-class ResNet18SimpleRegressor(nn.Module):
+class ResNet18SimpleRegressor(LoadableModule):
 
     def __init__(self, module_transfer_depth=6, transfer_weights=True):
         super().__init__()
@@ -148,7 +148,7 @@ class ResNet18SimpleRegressor(nn.Module):
         return x
 
 
-class ResNet18DualBranchRegressor(nn.Module):
+class ResNet18DualBranchRegressor(LoadableModule):
 
     def __init__(self, module_transfer_depth=6, transfer_weights=True):
         super().__init__()
@@ -191,7 +191,7 @@ class ResNet18DualBranchRegressor(nn.Module):
         return x
 
 
-class ResNetStateRegressor(nn.Module):
+class ResNetStateRegressor(LoadableModule):
 
     def __init__(self, config=None):
         super().__init__()
@@ -230,7 +230,7 @@ class ResNetStateRegressor(nn.Module):
         return out
 
 
-class ResNetStateLargerRegressor(nn.Module):
+class ResNetStateLargerRegressor(LoadableModule):
 
     def __init__(self, config=None):
         super().__init__()
@@ -253,6 +253,7 @@ class ResNetStateLargerRegressor(nn.Module):
         self.state_fc_0 = nn.Linear(256, 256)
 
         # defining the upscaling layers to get out the original image size again
+        # TODO: maybe add branching
         self.regressor = nn.Sequential(
             nn.Linear(512, 256),
             nn.Dropout(0.5),
@@ -282,7 +283,7 @@ class ResNetStateLargerRegressor(nn.Module):
         return out
 
 
-class ResNetRegressor(nn.Module):
+class ResNetRegressor(LoadableModule):
 
     def __init__(self, config=None):
         super().__init__()
@@ -314,7 +315,50 @@ class ResNetRegressor(nn.Module):
         return out
 
 
-class StateOnlyRegressor(nn.Module):
+class ResNetLargerRegressor(LoadableModule):
+
+    def __init__(self, config=None):
+        super().__init__()
+
+        # defining the feature-extracting CNN using VGG16 layers as a basis
+        resnet18 = models.resnet18(True)
+        modules = list(resnet18.children())[:7]
+
+        self.features = nn.Sequential(*modules)
+        self.downsample = nn.Conv2d(256, 256, 3, stride=2)
+        # shape will be [-1, 256, 19, 25] after this with module_transfer_depth 7 and input height 300
+
+        # pooling layer, using the same as ResNet for now
+        # self.pooling = nn.AdaptiveAvgPool2d((1, 1))
+        self.image_fc_0 = nn.Linear(6144, 512)
+        self.image_fc_1 = nn.Linear(512, 256)
+
+        # defining the upscaling layers to get out the original image size again
+        self.regressor = nn.Sequential(
+            nn.Linear(256, 256),
+            nn.Dropout(0.5),
+            nn.ReLU(),
+            nn.Linear(256, 4),
+            ControlActivationLayer()
+        )
+
+        self.relu = nn.ReLU()
+        self.fc_dropout = nn.Dropout(p=0.5)
+
+    def forward(self, x):
+        image_x = self.features(x["input_image_0"])
+        image_x = self.relu(self.downsample(image_x))
+        image_x = image_x.reshape(image_x.size(0), -1)
+        image_x = self.relu(self.fc_dropout(self.image_fc_0(image_x)))
+        image_x = self.relu(self.fc_dropout(self.image_fc_1(image_x)))
+
+        probabilities = self.regressor(image_x)
+
+        out = {"output_control": probabilities}
+        return out
+
+
+class StateOnlyRegressor(LoadableModule):
 
     def __init__(self, config=None):
         super().__init__()

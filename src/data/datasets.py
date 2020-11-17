@@ -608,6 +608,193 @@ class StackedImageToAttentionDataset(Dataset):
         return out
 
 
+class StackedImageAndStateToControlDataset(Dataset):
+
+    def __init__(self, config, split):
+        super().__init__()
+        self.data_root = config["data_root"]
+        self.video_input_names = config["input_video_names"]
+        self.state_input_names = config["drone_state_names"]
+        self.output_name = config["ground_truth_name"]
+        self.output_columns = []
+        self.split = split
+        self.stack_size = config["stack_size"]
+        self.dreyeve_transforms = config["dreyeve_transforms"]
+
+        frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
+        split_index = pd.read_csv(config["split_config"] + ".csv")
+        frame_index["split"] = split_index
+
+        ground_truth = pd.read_csv(os.path.join(self.data_root, "index", f"{self.output_name}.csv"))
+        for col in ground_truth:
+            frame_index[col] = ground_truth[col]
+            self.output_columns.append(col)
+
+        drone_state = pd.read_csv(os.path.join(self.data_root, "index", "state.csv"))
+        for col in self.state_input_names:
+            frame_index[col] = drone_state[col]
+
+        self.index = frame_index[frame_index["split"] == self.split].copy().reset_index(drop=True)
+
+        self.index["label"] = 4
+        for idx, (track_name, half) in enumerate([("flat", "left_half"), ("flat", "right_half"),
+                                                  ("wave", "left_half"), ("wave", "right_half")]):
+            self.index.loc[(self.index["track_name"] == track_name) & (self.index[half] == 1), "label"] = idx
+
+        with open(config["split_config"] + "_info.json", "r") as f:
+            split_index_info = json.load(f)
+        input_statistics = {}
+        for i in self.video_input_names:
+            if config["no_normalisation"]:
+                input_statistics[i] = {"mean": np.array([0, 0, 0]), "std": np.array([1, 1, 1])}
+            else:
+                if "mean" in split_index_info and "std" in split_index_info:
+                    input_statistics[i] = {
+                        "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
+                        "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
+                    }
+                else:
+                    input_statistics[i] = {
+                        "mean": STATISTICS["mean"][i],
+                        "std": STATISTICS["std"][i]
+                    }
+
+        self.random_crop = None
+        if self.dreyeve_transforms:
+            self.random_crop = ManualRandomCrop((256, 256), (112, 112))
+
+            self.video_input_transforms = {
+                "stack": [transforms.Compose([
+                    transforms.ToPILImage(),
+                    transforms.Resize((112, 112)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
+                ]) for i in self.video_input_names],
+                "stack_crop": [transforms.Compose([
+                    transforms.ToPILImage(),
+                    transforms.Resize((256, 256)),
+                    self.random_crop,
+                    transforms.ToTensor(),
+                    transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"]),
+                ]) for i in self.video_input_names],
+                "last_frame": [transforms.Compose([
+                    transforms.ToPILImage(),
+                    transforms.Resize((448, 448)),
+                    transforms.ToTensor(),
+                    transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
+                ]) for i in self.video_input_names],
+            }
+
+            # don't need any output transforms here
+        else:
+            # just a simple transform for every frame
+            self.video_input_transforms = {
+                "stack": [transforms.Compose([
+                    transforms.ToPILImage(),
+                    transforms.Resize(config["resize"]),
+                    transforms.ToTensor(),
+                    transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
+                ]) for i in self.video_input_names]
+            }
+
+        self.video_readers = {}
+
+        # find contiguous sequences of frames
+        sequences = []
+        frames = self.index["frame"]
+        jumps = (frames - frames.shift()) != 1
+        frames = list(frames.index[jumps]) + [frames.index[-1] + 1]
+        for i, start_index in enumerate(frames[:-1]):
+            # note that the range [start_frame, end_frame) is exclusive
+            sequences.append((start_index, frames[i + 1]))
+
+        # need some way to not mess up the indexing, but also cannot remove data
+        # maybe use second "index" that skips the (stack_size - 1) first frames of each contiguous sequence?
+        self.index["stack_index"] = -1
+        df_col_index = self.index.columns.get_loc("stack_index")
+        total_num_frame_stacks = 0
+        for start_index, end_index in sequences:
+            num_frames_seq = end_index - start_index
+            num_frame_stacks = num_frames_seq - self.stack_size + 1
+            if end_index - start_index < self.stack_size:
+                continue
+
+            # assign index over entire dataframe to "valid" frames
+            index = np.arange(num_frame_stacks) + total_num_frame_stacks
+            self.index.iloc[(start_index + self.stack_size - 1):end_index, df_col_index] = index
+
+            # keep track of the current number of stacks (highest index)
+            total_num_frame_stacks += num_frame_stacks
+
+    def __len__(self):
+        return self.index["stack_index"].max() + 1
+
+    def __getitem__(self, item):
+        # get the information about the current item
+        # TODO: maybe just change the index of the dataframe? might make this particular step easier
+        current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
+        # current_run_dir = self.index["run_dir"].iloc[current_stack_index]
+        current_stack_df = self.index.iloc[(current_stack_index - self.stack_size + 1):(current_stack_index + 1)]
+        current_frame_index = current_stack_df["frame"].iloc[-1]
+        current_run_dir = os.path.join(self.data_root, run_info_to_path(current_stack_df["subject"].iloc[0],
+                                                                        current_stack_df["run"].iloc[0],
+                                                                        current_stack_df["track_name"].iloc[0]))
+
+        # initialise the video readers if necessary
+        if current_run_dir not in self.video_readers:
+            # print(os.path.join(current_run_dir, f"{self.video_input_names[1]}.mp4"))
+            self.video_readers[current_run_dir] = {
+                f"input_image_{idx}": get_indexed_reader(os.path.join(current_run_dir, f"{i}.mp4"))
+                for idx, i in enumerate(self.video_input_names)
+            }
+
+        # prepare new "crop parameters" to get a random crop consistent across different tensors
+        if self.random_crop is not None:
+            self.random_crop.update()
+
+        # read the frames
+        video_inputs = [{k: [] for k in self.video_input_transforms} for _ in self.video_input_names]
+        # inputs_original = [{} for _ in self.input_names]
+        for idx, _ in enumerate(self.video_input_names):
+            for in_stack_idx, (_, row) in enumerate(current_stack_df.iterrows()):
+                frame = self.video_readers[current_run_dir][f"input_image_{idx}"][row["frame"]]
+
+                # apply input transform here already
+                for k in self.video_input_transforms:
+                    if k != "last_frame":
+                        video_inputs[idx][k].append(self.video_input_transforms[k][idx](frame))
+                    elif in_stack_idx == self.stack_size - 1:
+                        video_inputs[idx][k] = self.video_input_transforms[k][idx](frame)
+
+            # stack the frames
+            for k in self.video_input_transforms:
+                if k != "last_frame":
+                    video_inputs[idx][k] = torch.stack(video_inputs[idx][k], 1)
+
+        # read the state input
+        state_input = current_stack_df[self.state_input_names].iloc[-1].values
+
+        # determine the "high level command" label for the sample
+        high_level_label = current_stack_df["label"].iloc[-1]
+
+        # extract the control GT from the dataframe
+        output = current_stack_df[self.output_columns].iloc[-1].values
+
+        # start constructing the output dictionary, left empty for now
+        # out = {"original": {}} => strange interaction with get_batch_size if left empty
+        out = {}
+
+        # apply transform only for the output
+        for idx, i in enumerate(video_inputs):
+            out[f"input_image_{idx}"] = i
+        out["input_state"] = torch.from_numpy(state_input).float()
+        out["output_control"] = torch.from_numpy(output).float()
+        out["label_high_level"] = high_level_label
+
+        # return a dictionary
+        return out
+
+
 class StateToControlDataset(Dataset):
 
     def __init__(self, config, split):
@@ -674,21 +861,24 @@ if __name__ == "__main__":
     test_config = {
         "data_root": os.getenv("GAZESIM_ROOT"),
         "input_video_names": ["screen"],
-        "ground_truth_name": "moving_window_frame_mean_gt",  # "drone_control_frame_mean_gt",
+        # "ground_truth_name": "moving_window_frame_mean_gt",
+        "ground_truth_name": "drone_control_frame_mean_gt",
         "drone_state_names": ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ"],
-        "resize": 122,
+        "resize": (122, 122),
         "split_config": resolve_split_index_path(11, data_root=os.getenv("GAZESIM_ROOT")),
         "stack_size": 4,
-        "dreyeve_transforms": True,
+        "dreyeve_transforms": False,
         "no_normalisation": False
     }
 
-    dataset = StackedImageToAttentionDataset(test_config, split="train")
+    dataset = StackedImageAndStateToControlDataset(test_config, split="train")
     print(len(dataset))
     # print(dataset.index.columns)
 
     sample = dataset[0]
     print("sample:", sample.keys())
+
+    exit(0)
 
     print("\ninput_image_0:", sample["input_image_0"].keys())
     for k, v in sample["input_image_0"].items():

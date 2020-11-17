@@ -1,15 +1,11 @@
 import torch
 import torch.nn as nn
 
-from src.models.utils import image_log_softmax
+from src.models.layers import LoadableModule
 
 # all of this basically taken from https://github.com/ndrplz/dreyeve/blob/master/experiments/train/models.py
 # TODO: maybe consider replacing the C3D parts?
 #  see here for alternatives: https://discuss.pytorch.org/t/pertained-c3d-model-for-video-classification/15506
-
-
-class BilinearUpsampling(nn.Module):
-    pass
 
 
 class CoarseSaliencyModel(nn.Module):
@@ -62,7 +58,7 @@ class CoarseSaliencyModel(nn.Module):
         return x
 
 
-class SaliencyBranch(nn.Module):
+class SaliencyBranch(LoadableModule):
 
     def __init__(self, config):
         super().__init__()
@@ -133,7 +129,7 @@ class SaliencyBranch(nn.Module):
         return out
 
 
-class DrEYEveNet(nn.Module):
+class DrEYEveNet(LoadableModule):
 
     def __init__(self, config):
         super().__init__()
@@ -152,6 +148,9 @@ class DrEYEveNet(nn.Module):
 
         out = {"output_attention": predictions}
         return out
+
+    def load_model_info(self, model_info_dict):
+        raise NotImplementedError
 
 
 if __name__ == "__main__":

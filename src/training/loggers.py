@@ -194,7 +194,7 @@ class AttentionLogger(Logger):
 
         # accumulate partial losses
         for ln, l in partial_losses.items():
-            if ln not in self.partial_losses_val_kl.items():
+            if ln not in self.partial_losses_val_kl:
                 self.partial_losses_val_kl[ln] = torch.zeros_like(l)
             self.partial_losses_val_kl[ln] += l
 

@@ -33,6 +33,8 @@ def train(config):
     model_class = resolve_model_class(config["model_name"])
     model = model_class(config)
     if config["model_info"] is not None:
+        # TODO: need to update this to work with models where we want to partially load them
+        #  => might be good to have a method for models like that which can be called
         model.load_state_dict(config["model_info"]["model_state_dict"])
     model = model.to(device)
 
@@ -133,19 +135,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # arguments related to the dataset
-    parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
+    parser.add_argument("-r", "--data_root", type=str,
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    parser.add_argument("-sc", "--split_config", default=0,
+    parser.add_argument("-sc", "--split_config",
                         help="The split configuration/index to get information about the division into training "
                              "and validation (and test) data from. Can either be the path to a file or an index "
                              "(will search in $DATA_ROOT/splits/).")
-    parser.add_argument("-ivn", "--input_video_names", type=str, nargs="+", default=["screen"],
+    parser.add_argument("-ivn", "--input_video_names", type=str, nargs="+",
                         help="The (file) name(s) for the video(s) to use as input.")
-    parser.add_argument("-dsn", "--drone_state_names", type=str, nargs="+", default=None,
+    parser.add_argument("-dsn", "--drone_state_names", type=str, nargs="+",
                         help="The column names/quantities to use as input when there is a drone state input. "
                              "Can also specify the following shorthands for pre-defined sets of columns: "
                              "'all', 'vel', 'acc', 'ang_vel'.")
-    parser.add_argument("-gtn", "--ground_truth_name", type=str, default="moving_window_mean_frame_gt",
+    parser.add_argument("-gtn", "--ground_truth_name", type=str,
                         help="The (file) name(s) for the video(s) to use as targets for attention.")
     parser.add_argument("-c", "--config_file", type=str,
                         help="Config file to load parameters from.")
@@ -153,31 +155,31 @@ if __name__ == "__main__":
                         help="Whether or not to normalise the (image) input data.")
 
     # arguments related to the model
-    parser.add_argument("-m", "--model_name", type=str, default="codevilla",
-                        choices=["codevilla", "c3d", "codevilla300", "codevilla_skip", "codevilla_multi_head",
-                                 "codevilla_dual_branch", "resnet_state", "resnet", "resnet_larger", "state_only",
-                                 "dreyeve_branch"],
+    parser.add_argument("-m", "--model_name", type=str,
+                        choices=["codevilla", "c3d", "c3d_state", "codevilla300", "codevilla_skip",
+                                 "codevilla_multi_head", "codevilla_dual_branch", "resnet_state", "resnet",
+                                 "resnet_larger", "resnet_state_larger", "state_only", "dreyeve_branch"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,  # TODO: maybe adjust for dreyeve net
                         help="Path to load a model checkpoint from (including information about the "
                              "architecture, the current weights and the state of the optimiser).")
 
     # arguments related to training
-    parser.add_argument("-g", "--gpu", type=int, default=0,
+    parser.add_argument("-g", "--gpu", type=int,
                         help="GPU to use for training if any are available.")
-    parser.add_argument("-ts", "--torch_seed", type=int, default=127,
+    parser.add_argument("-ts", "--torch_seed", type=int,
                         help="Random seed to use for calling torch.manual_seed(seed).")
-    parser.add_argument("-w", "--num_workers", type=int, default=4,
+    parser.add_argument("-w", "--num_workers", type=int,
                         help="Number of workers to use for loading the data.")
-    parser.add_argument("-b", "--batch_size", type=int, default=128,
+    parser.add_argument("-b", "--batch_size", type=int,
                         help="Batch size to use for training.")
-    parser.add_argument("-e", "--num_epochs", type=int, default=5,
+    parser.add_argument("-e", "--num_epochs", type=int,
                         help="Maximum number of epochs to train for.")
-    parser.add_argument("-o", "--optimiser", type=str, default="adam", choices=["adam"],
+    parser.add_argument("-o", "--optimiser", type=str, choices=["adam"],
                         help="The optimiser to use.")
-    parser.add_argument("-lr", "--learning_rate", type=float, default=0.0001,
+    parser.add_argument("-lr", "--learning_rate", type=float,
                         help="The learning rate to start with.")
-    parser.add_argument("-l", "--losses", type=str, nargs="+", default=["mse"],
+    parser.add_argument("-l", "--losses", type=str, nargs="+",
                         help="The loss to use. Depends on the model architecture and what kinds of outputs "
                              "(and how many) it has. For now only one loss can be specified (no architecture "
                              "with multiple outputs/losses). If the wrong loss is supplied, it will be changed "
@@ -186,14 +188,14 @@ if __name__ == "__main__":
     # TODO: add loss weights for the dreyeve models
 
     # arguments related to logging information
-    parser.add_argument("-lg", "--log_root", type=str, default=os.getenv("GAZESIM_LOG"),
+    parser.add_argument("-lg", "--log_root", type=str,
                         help="Root directory where log folders for each run should be created.")
     parser.add_argument("-exp", "--experiment_name", type=str,
                         help="The name under which to save the logs and checkpoints (in addition to a timestamp).")
-    parser.add_argument("-vf", "--validation_frequency", type=int, default=1,
+    parser.add_argument("-vf", "--validation_frequency", type=int,
                         help="How often to compute the validation loss during each epoch. When set to 1 "
                              "(the default value) this is only done at the end of the epoch, as is standard.")
-    parser.add_argument("-cf", "--checkpoint_frequency", type=int, default=1,
+    parser.add_argument("-cf", "--checkpoint_frequency", type=int,
                         help="Frequency at which to save model checkpoints (in epochs).")
 
     # parse the arguments

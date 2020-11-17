@@ -45,7 +45,7 @@ def generate(config):
     model.eval()
 
     # some info for saving the predictions
-    experiment_name = train_config["experiment_name"][18:]
+    experiment_name = train_config["experiment_name"][20:]
     epoch = model_info["epoch"]
 
     for split in config["split"]:
