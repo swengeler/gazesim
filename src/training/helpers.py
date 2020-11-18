@@ -5,7 +5,7 @@ from src.training.loggers import ControlLogger, TestLogger, AttentionLogger
 from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset, StateToControlDataset, StackedImageAndStateToControlDataset
 from src.data.datasets import StackedImageToAttentionDataset
 from src.models.c3d import C3DRegressor, C3DStateRegressor
-from src.models.codevilla import Codevilla, Codevilla300, CodevillaSkip, CodevillaMultiHead, CodevillaDualBranch
+from src.models.codevilla import Codevilla, Codevilla300, CodevillaSkip, CodevillaMultiHead, CodevillaDualBranch, CodevillaMultiHeadNoState
 from src.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetStateLargerRegressor, StateOnlyRegressor, ResNetLargerRegressor
 from src.models.dreyeve import SaliencyBranch, DrEYEveNet
 from src.models.utils import image_log_softmax
@@ -43,6 +43,7 @@ def resolve_model_class(model_name):
         "codevilla_skip": CodevillaSkip,
         "codevilla_multi_head": CodevillaMultiHead,
         "codevilla_dual_branch": CodevillaDualBranch,
+        "codevilla_no_state": CodevillaMultiHeadNoState,
         "resnet_state": ResNetStateRegressor,
         "resnet": ResNetRegressor,
         "resnet_larger": ResNetLargerRegressor,
@@ -116,6 +117,7 @@ def resolve_dataset_name(model_name):
         "codevilla_skip": "ImageAndStateToControlDataset",
         "codevilla_multi_head": "ImageAndStateToControlDataset",
         "codevilla_dual_branch": "ImageAndStateToControlDataset",
+        "codevilla_no_state": "ImageToControlDataset",
         "resnet_state": "ImageAndStateToControlDataset",
         "resnet": "ImageToControlDataset",
         "resnet_larger": "ImageToControlDataset",
@@ -157,6 +159,7 @@ def resolve_resize_parameters(model_name):
         "codevilla_skip": 150,
         "codevilla_multi_head": 150,
         "codevilla_dual_branch": 150,
+        "codevilla_no_state": 150,
         "resnet_state": 300,
         "resnet": 300,
         "resnet_larger": 150,

@@ -8,8 +8,8 @@ import matplotlib.style as style
 import cv2
 import torch
 
+from torch.utils.data._utils.collate import default_collate as to_batch
 from tqdm import tqdm
-from src.models.utils import image_softmax
 from src.models.c3d import C3DRegressor
 from src.data.old_datasets import get_dataset
 from src.data.utils import parse_run_info, find_contiguous_sequences, resolve_split_index_path, run_info_to_path
@@ -150,7 +150,8 @@ def test(config):
 
             for index in tqdm(range(start_index, end_index), disable=True):
                 # read the current data sample
-                sample = to_device(current_dataset[index], device, make_batch=True)
+                sample = to_batch([current_dataset[index]])
+                sample = to_device(sample, device)
 
                 # compute the loss
                 prediction = model(sample)
@@ -170,7 +171,8 @@ def test(config):
                 input_images = []
                 for key in sorted(sample["original"]):
                     if key.startswith("input_image"):
-                        input_images.append(sample["original"][key])
+                        input_images.append(sample["original"][key].cpu().detach().numpy().squeeze())
+                        # print(sample["original"][key].cpu().detach().numpy().shape)
 
                 # create the new frame and write it
                 frame = create_frame(fig, ax, control_gt, control_prediction, input_images)

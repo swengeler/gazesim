@@ -27,7 +27,7 @@ def train(config):
 
     validation_set = resolve_dataset_class(config["dataset_name"])(config, split="val")
     validation_generator = DataLoader(validation_set, batch_size=config["batch_size"],
-                                      shuffle=True, num_workers=config["num_workers"])
+                                      shuffle=False, num_workers=config["num_workers"])
 
     # define the model
     model_class = resolve_model_class(config["model_name"])
@@ -157,8 +157,8 @@ if __name__ == "__main__":
     # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str,
                         choices=["codevilla", "c3d", "c3d_state", "codevilla300", "codevilla_skip",
-                                 "codevilla_multi_head", "codevilla_dual_branch", "resnet_state", "resnet",
-                                 "resnet_larger", "resnet_state_larger", "state_only", "dreyeve_branch"],
+                                 "codevilla_multi_head", "codevilla_dual_branch", "codevilla_no_state", "resnet_state",
+                                 "resnet", "resnet_larger", "resnet_state_larger", "state_only", "dreyeve_branch"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,  # TODO: maybe adjust for dreyeve net
                         help="Path to load a model checkpoint from (including information about the "

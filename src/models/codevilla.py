@@ -161,21 +161,22 @@ class CodevillaMultiHead(Codevilla):
 
         # use different branches depending on label of each sample in batch
         samples = []
+        index = torch.arange(end=combined_x.size(0)).to(combined_x.device)
         for b_idx, branch in enumerate(self.branches):
             # get subset of batch where label matches branch index
             subset = (x["label_high_level"] == b_idx)
 
             # vector of all indices in the batch, reshaped to match the dimensions of the input vector
-            index = torch.arange(end=combined_x.size(0)).to(combined_x.device)[subset]
+            sub_index = index[subset]
 
             # select the correct samples
-            branch_batch = torch.index_select(combined_x, 0, index)
+            branch_batch = torch.index_select(combined_x, 0, sub_index)
 
             # pass them through the branch head
             branch_batch = branch(branch_batch)
 
             # put them in the samples list
-            for s_idx, sample in zip(index, branch_batch):
+            for s_idx, sample in zip(sub_index, branch_batch):
                 samples.append((int(s_idx), sample.unsqueeze(0)))
 
         # combine samples again
@@ -264,6 +265,55 @@ class CodevillaDualBranch(CodevillaMultiHead):
 
         # final activation
         probabilities = self.final_activation(combined_x)
+
+        out = {"output_control": probabilities}
+        return out
+
+
+class CodevillaMultiHeadNoState(CodevillaMultiHead):
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        del self.state_fc_0
+        del self.state_fc_1
+        del self.state_net
+
+        # control network input vector
+        self.control_input_vector = Codevilla.fc_block(512, 512)
+
+    def forward(self, x):
+        image_x = self.image_net_conv(x["input_image_0"])
+        image_x = image_x.reshape(image_x.size(0), -1)
+        image_x = self.image_net_fc(image_x)
+        image_x = self.control_input_vector(image_x)
+
+        # use different branches depending on label of each sample in batch
+        samples = []
+        index = torch.arange(end=image_x.size(0)).to(image_x.device)
+        for b_idx, branch in enumerate(self.branches):
+            # get subset of batch where label matches branch index
+            subset = (x["label_high_level"] == b_idx)
+
+            # vector of all indices in the batch, reshaped to match the dimensions of the input vector
+            sub_index = index[subset]
+
+            # select the correct samples
+            branch_batch = torch.index_select(image_x, 0, sub_index)
+
+            # pass them through the branch head
+            branch_batch = branch(branch_batch)
+
+            # put them in the samples list
+            for s_idx, sample in zip(sub_index, branch_batch):
+                samples.append((int(s_idx), sample.unsqueeze(0)))
+
+        # combine samples again
+        samples = [sample[1] for sample in sorted(samples, key=lambda s: s[0])]
+        image_x = torch.cat(samples, 0)
+
+        # final activation
+        probabilities = self.final_activation(image_x)
 
         out = {"output_control": probabilities}
         return out

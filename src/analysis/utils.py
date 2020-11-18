@@ -14,5 +14,6 @@ def extract_tensorboard_data(data_dir):
         data_frames[n] = pd.DataFrame(accumulator.Scalars(n), columns=["wall_time", "step", n])
         data_frames[n].drop("wall_time", axis=1, inplace=True)
         data_frames[n] = data_frames[n].set_index("step")
+
     return pd.concat([v for k, v in data_frames.items()], axis=1)
 
