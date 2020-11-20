@@ -21,22 +21,47 @@ def save_config(config, config_save_path):
 
 class Logger:
 
-    def __init__(self, config, model, dataset):
-        # create log and checkpoint directory
+    def __init__(self, config):
+        # determine how many splits there are
+        if config["mode"] == "cv":
+            self.splits = config["cv_splits"]
+        else:
+            self.splits = 1
+        self.current_split = 0
+
+        # TODO: maybe define some prefixes and stuff (e.g. should cv logs start with "cv/..."?
+        #  although things should work as they are now...
+
+        # create log and checkpoint directories
         self.log_dir = os.path.join(config["log_root"], config["experiment_name"])
-        self.tensorboard_dir = os.path.join(self.log_dir, "tensorboard")
-        self.checkpoint_dir = os.path.join(self.log_dir, "checkpoints")
+        self.tensorboard_dirs = []
+        self.checkpoint_dirs = []
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
-            os.makedirs(self.tensorboard_dir)
-            os.makedirs(self.checkpoint_dir)
 
-        # create tensorboard writer
-        self.tb_writer = SummaryWriter(self.tensorboard_dir)
+        if self.splits == 1:
+            self.tensorboard_dirs.append(os.path.join(self.log_dir, "tensorboard"))
+            self.checkpoint_dirs.append(os.path.join(self.log_dir, "checkpoints"))
+            os.makedirs(self.tensorboard_dirs[-1])
+            os.makedirs(self.checkpoint_dirs[-1])
+        else:
+            for i in range(self.splits):
+                self.tensorboard_dirs.append(os.path.join(self.log_dir, "tensorboard", f"split_{i}"))
+                self.checkpoint_dirs.append(os.path.join(self.log_dir, "checkpoints", f"split_{i}"))
+                os.makedirs(self.tensorboard_dirs[-1])
+                os.makedirs(self.checkpoint_dirs[-1])
+
+        # create tensorboard writers
+        self.tb_writers = []
+        for tb_dir in self.tensorboard_dirs:
+            self.tb_writers.append(SummaryWriter(tb_dir))
 
         # store config for information and save config file
         self.config = config
         save_config(self.config, os.path.join(self.log_dir, "config.json"))
+
+    def update_info(self, **kwargs):
+        pass
 
     def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # to be called when a single training step (1 batch) is performed
@@ -54,6 +79,12 @@ class Logger:
         # to be called after each full pass over the validation set
         raise NotImplementedError()
 
+    def final_training_pass_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        raise NotImplementedError()
+
+    def final_training_pass_epoch_end(self, global_step, epoch, model, optimiser):
+        raise NotImplementedError()
+
 
 class TestLogger(Logger):
 
@@ -69,22 +100,34 @@ class TestLogger(Logger):
     def validation_epoch_end(self, global_step, epoch, model, optimiser):
         pass
 
+    def final_training_pass_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        pass
+
+    def final_training_pass_epoch_end(self, global_step, epoch, model, optimiser):
+        pass
+
 
 class ControlLogger(Logger):
 
-    def __init__(self, config, model, dataset):
-        super().__init__(config, model, dataset)
+    def __init__(self, config):
+        super().__init__(config)
 
-        self.control_names = dataset.output_columns
+        # should these be lists? I don't think they need to be, since we usually only need to keep track of one
+        # can probably just subclass this class and have a current_split index....
+        self.control_names = None
         self.total_loss_val_mse = None
         self.total_loss_val_l1 = None
         self.individual_losses_val_mse = None
         self.individual_losses_val_l1 = None
         self.counter_val = 0
 
+    def update_info(self, **kwargs):
+        if "dataset" in kwargs:
+            self.control_names = kwargs.get("dataset").output_columns
+
     def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # log total loss
-        self.tb_writer.add_scalar("loss/train/total/mse", total_loss.item(), global_step)
+        self.tb_writers[self.current_split].add_scalar("loss/train/total/mse", total_loss.item(), global_step)
 
         # determine individual losses
         individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_control"],
@@ -94,7 +137,7 @@ class ControlLogger(Logger):
 
         # log individual losses
         for n, l_mse in zip(self.control_names, individual_losses_mse):
-            self.tb_writer.add_scalar(f"loss/train/{n}/mse", l_mse, global_step)
+            self.tb_writers[self.current_split].add_scalar(f"loss/train/{n}/mse", l_mse, global_step)
 
     def training_epoch_end(self, global_step, epoch, model, optimiser):
         # save model checkpoint
@@ -105,8 +148,8 @@ class ControlLogger(Logger):
                 "model_name": self.config["model_name"],
                 "model_state_dict": model.state_dict(),
                 "optimiser_state_dict": optimiser.state_dict()
-            }, os.path.join(self.checkpoint_dir, "epoch{:03d}.pt".format(epoch)))
-            print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, self.checkpoint_dir))
+            }, os.path.join(self.checkpoint_dirs[self.current_split], "epoch{:03d}.pt".format(epoch)))
+            print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, self.checkpoint_dirs[self.current_split]))
 
     def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # determine individual losses
@@ -137,13 +180,15 @@ class ControlLogger(Logger):
 
     def validation_epoch_end(self, global_step, epoch, model, optimiser):
         # log total loss
-        self.tb_writer.add_scalar("loss/val/total/mse", self.total_loss_val_mse.item() / self.counter_val, global_step)
-        self.tb_writer.add_scalar("loss/val/total/l1", self.total_loss_val_l1.item() / self.counter_val, global_step)
+        self.tb_writers[self.current_split].add_scalar(
+            "loss/val/total/mse", self.total_loss_val_mse.item() / self.counter_val, global_step)
+        self.tb_writers[self.current_split].add_scalar(
+            "loss/val/total/l1", self.total_loss_val_l1.item() / self.counter_val, global_step)
 
         # log individual losses
         for n, l_mse, l_l1 in zip(self.control_names, self.individual_losses_val_mse, self.individual_losses_val_l1):
-            self.tb_writer.add_scalar(f"loss/val/{n}/mse", l_mse / self.counter_val, global_step)
-            self.tb_writer.add_scalar(f"loss/val/{n}/l1", l_l1 / self.counter_val, global_step)
+            self.tb_writers[self.current_split].add_scalar(f"loss/val/{n}/mse", l_mse / self.counter_val, global_step)
+            self.tb_writers[self.current_split].add_scalar(f"loss/val/{n}/l1", l_l1 / self.counter_val, global_step)
 
         # reset the loss accumulators
         self.total_loss_val_mse = torch.zeros_like(self.total_loss_val_mse)
@@ -152,11 +197,17 @@ class ControlLogger(Logger):
         self.individual_losses_val_l1 = torch.zeros_like(self.individual_losses_val_l1)
         self.counter_val = 0
 
+    def final_training_pass_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        raise NotImplementedError()
+
+    def final_training_pass_epoch_end(self, global_step, epoch, model, optimiser):
+        raise NotImplementedError()
+
 
 class AttentionLogger(Logger):
 
-    def __init__(self, config, model, dataset):
-        super().__init__(config, model, dataset)
+    def __init__(self, config):
+        super().__init__(config)
 
         self.total_loss_val_kl = None
         self.partial_losses_val_kl = {}
@@ -167,12 +218,12 @@ class AttentionLogger(Logger):
     def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # log total loss
         # TODO: maybe the loss "type" shouldn't be hard-coded
-        self.tb_writer.add_scalar("loss/train/total/kl", total_loss.item(), global_step)
+        self.tb_writers[self.current_split].add_scalar("loss/train/total/kl", total_loss.item(), global_step)
 
         # if len(partial_losses) > 1:
         # log the partial losses
         for ln, l in partial_losses.items():
-            self.tb_writer.add_scalar(f"loss/train/{ln}/kl", l.item(), global_step)
+            self.tb_writers[self.current_split].add_scalar(f"loss/train/{ln}/kl", l.item(), global_step)
 
     def training_epoch_end(self, global_step, epoch, model, optimiser):
         # save model checkpoint
@@ -183,8 +234,8 @@ class AttentionLogger(Logger):
                 "model_name": self.config["model_name"],
                 "model_state_dict": model.state_dict(),
                 "optimiser_state_dict": optimiser.state_dict()
-            }, os.path.join(self.checkpoint_dir, "epoch{:03d}.pt".format(epoch)))
-            print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, self.checkpoint_dir))
+            }, os.path.join(self.checkpoint_dirs[self.current_split], "epoch{:03d}.pt".format(epoch)))
+            print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, self.checkpoint_dirs[self.current_split]))
 
     def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # accumulate total loss
@@ -207,8 +258,10 @@ class AttentionLogger(Logger):
             images_prediction = convert_attention_to_image(image_softmax(predictions["output_attention"]),
                                                            out_shape=images_original.shape[2:])
 
-            self.tb_writer.add_images("attention/val/ground_truth", images_original, global_step, dataformats="NCHW")
-            self.tb_writer.add_images("attention/val/prediction", images_prediction, global_step, dataformats="NCHW")
+            self.tb_writers[self.current_split].add_images("attention/val/ground_truth", images_original,
+                                                           global_step, dataformats="NCHW")
+            self.tb_writers[self.current_split].add_images("attention/val/prediction", images_prediction,
+                                                           global_step, dataformats="NCHW")
 
             self.log_attention_val = False
 
@@ -216,11 +269,13 @@ class AttentionLogger(Logger):
         # TODO: also record a batch or so of original and predicted attention maps and save them
 
         # log total loss
-        self.tb_writer.add_scalar("loss/val/total/kl", self.total_loss_val_kl.item() / self.counter_val, global_step)
+        self.tb_writers[self.current_split].add_scalar(
+            "loss/val/total/kl", self.total_loss_val_kl.item() / self.counter_val, global_step)
 
         # log individual losses
         for ln, l in self.partial_losses_val_kl.items():
-            self.tb_writer.add_scalar(f"loss/val/{ln}/kl", l.item() / self.counter_val, global_step)
+            self.tb_writers[self.current_split].add_scalar(
+                f"loss/val/{ln}/kl", l.item() / self.counter_val, global_step)
 
         # reset the loss accumulators
         self.total_loss_val_kl = torch.zeros_like(self.total_loss_val_kl)
@@ -229,3 +284,121 @@ class AttentionLogger(Logger):
         self.counter_val = 0
 
         self.log_attention_val = True
+
+    def final_training_pass_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        raise NotImplementedError
+
+    def final_training_pass_epoch_end(self, global_step, epoch, model, optimiser):
+        raise NotImplementedError
+
+
+class CVControlLogger(ControlLogger):
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        # end-of-epoch training and validation error accumulators
+        self.eoe_training_errors = None
+        self.eoe_validation_errors = None
+
+        # basically all the same stuff for training instead of validation
+        self.total_loss_train_mse = None
+        self.total_loss_train_l1 = None
+        self.individual_losses_train_mse = None
+        self.individual_losses_train_l1 = None
+        self.counter_train = 0
+
+    def update_info(self, **kwargs):
+        super().update_info(**kwargs)
+
+        if self.eoe_training_errors is None and "dataset" in kwargs:
+            error_names = ["total"] + self.control_names
+            self.eoe_training_errors = {
+                f"split_{s}": {
+                    n: {
+                        "mse": [],
+                        "l1": []
+                    } for n in error_names
+                } for s in range(self.splits)
+            }
+            self.eoe_validation_errors = {
+                f"split_{s}": {
+                    n: {
+                        "mse": [],
+                        "l1": []
+                    } for n in error_names
+                } for s in range(self.splits)
+            }
+
+        if "split" in kwargs:
+            self.current_split = kwargs.get("split")
+
+    def validation_epoch_end(self, global_step, epoch, model, optimiser):
+        self.eoe_validation_errors[f"split_{self.current_split}"]["total"]["mse"].append(
+            self.total_loss_val_mse.item() / self.counter_val)
+        self.eoe_validation_errors[f"split_{self.current_split}"]["total"]["l1"].append(
+            self.total_loss_val_l1.item() / self.counter_val)
+
+        for n, l_mse, l_l1 in zip(self.control_names, self.individual_losses_val_mse, self.individual_losses_val_l1):
+            self.eoe_validation_errors[f"split_{self.current_split}"][n]["mse"].append(l_mse / self.counter_val)
+            self.eoe_validation_errors[f"split_{self.current_split}"][n]["l1"].append(l_l1 / self.counter_val)
+
+        super().validation_epoch_end(global_step, epoch, model, optimiser)
+        self.counter_val += 1  # should actually be updated with update_info, but this doesn't really hurt
+
+    def final_training_pass_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        # determine individual losses
+        individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_control"],
+                                                             batch["output_control"],
+                                                             reduction="none")
+        individual_losses_mse = torch.mean(individual_losses_mse, dim=0)
+        individual_losses_l1 = torch.nn.functional.l1_loss(predictions["output_control"],
+                                                           batch["output_control"],
+                                                           reduction="none")
+        individual_losses_l1 = torch.mean(individual_losses_l1, dim=0)
+
+        # accumulate total loss
+        if self.total_loss_train_mse is None:
+            self.total_loss_train_mse = torch.zeros_like(total_loss)
+            self.total_loss_train_l1 = torch.zeros_like(total_loss)
+        self.total_loss_train_mse += total_loss
+        self.total_loss_train_l1 += torch.mean(individual_losses_l1)
+
+        # accumulate individual losses
+        if self.individual_losses_train_mse is None:
+            self.individual_losses_train_mse = torch.zeros_like(individual_losses_mse)
+            self.individual_losses_train_l1 = torch.zeros_like(individual_losses_l1)
+        self.individual_losses_train_mse += individual_losses_mse
+        self.individual_losses_train_l1 += individual_losses_l1
+
+        self.counter_train += 1
+
+    def final_training_pass_epoch_end(self, global_step, epoch, model, optimiser):
+        # record the errors
+        self.eoe_training_errors[f"split_{self.current_split}"]["total"]["mse"].append(
+            self.total_loss_train_mse.item() / self.counter_train)
+        self.eoe_training_errors[f"split_{self.current_split}"]["total"]["l1"].append(
+            self.total_loss_train_l1.item() / self.counter_train)
+
+        for n, l_mse, l_l1 in zip(self.control_names, self.individual_losses_train_mse, self.individual_losses_train_l1):
+            self.eoe_training_errors[f"split_{self.current_split}"][n]["mse"].append(l_mse / self.counter_train)
+            self.eoe_training_errors[f"split_{self.current_split}"][n]["l1"].append(l_l1 / self.counter_train)
+
+        # reset the loss accumulators
+        self.total_loss_train_mse = torch.zeros_like(self.total_loss_train_mse)
+        self.total_loss_train_l1 = torch.zeros_like(self.total_loss_train_l1)
+        self.individual_losses_train_mse = torch.zeros_like(self.individual_losses_train_mse)
+        self.individual_losses_train_l1 = torch.zeros_like(self.individual_losses_train_l1)
+        self.counter_train = 0
+
+        # save stuff...
+        if self.current_split == self.splits - 1:
+            save_dict = {
+                "training_errors": self.eoe_training_errors,
+                "validation_errors": self.eoe_validation_errors
+            }
+            with open(os.path.join(self.log_dir, "cross_validation_results.json"), "w") as f:
+                json.dump(save_dict, f)
+        # TODO: really have a proper thonk if this pass over the full training set should happen only at the end
+        #  of the full training run (after all epochs are finished), since it will basically at least double the time
+        #  the whole procedure will take (+ computing the individual losses really doesn't help)

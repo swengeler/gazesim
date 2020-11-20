@@ -20,7 +20,7 @@ class ImageDataset(Dataset):
 
 class ImageToAttentionDataset(Dataset):
 
-    def __init__(self, config, split):
+    def __init__(self, config, split, cv_split=-1):
         super().__init__()
         # TODO: before re-implementing these classes, should probably figure out in what way train/val/test splits
         #  are going to be represented and (probably more importantly) how they will be generated...
@@ -43,6 +43,8 @@ class ImageToAttentionDataset(Dataset):
 
         frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
         split_index = pd.read_csv(config["split_config"] + ".csv")
+        if cv_split >= 0:
+            split_index = split_index[f"split_{cv_split}"]
         frame_index["split"] = split_index
         self.index = frame_index[frame_index["split"] == self.split]
         # TODO: should it be possible to filter here as well? right now I'm just doing the filtering in the
@@ -143,7 +145,7 @@ class ImageToAttentionDataset(Dataset):
 
 class ImageToControlDataset(Dataset):
 
-    def __init__(self, config, split):
+    def __init__(self, config, split, cv_split=-1):
         super().__init__()
         self.data_root = config["data_root"]
         self.input_names = config["input_video_names"]
@@ -153,6 +155,8 @@ class ImageToControlDataset(Dataset):
 
         frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
         split_index = pd.read_csv(config["split_config"] + ".csv")
+        if cv_split >= 0:
+            split_index = split_index[f"split_{cv_split}"]
         frame_index["split"] = split_index
 
         # TODO: could have check of GT availability here but probably better to do in generate_splits.py
@@ -244,7 +248,7 @@ class ImageToControlDataset(Dataset):
 
 class ImageAndStateToControlDataset(Dataset):
 
-    def __init__(self, config, split):
+    def __init__(self, config, split, cv_split=-1):
         super().__init__()
         self.data_root = config["data_root"]
         self.video_input_names = config["input_video_names"]
@@ -255,6 +259,8 @@ class ImageAndStateToControlDataset(Dataset):
 
         frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
         split_index = pd.read_csv(config["split_config"] + ".csv")
+        if cv_split >= 0:
+            split_index = split_index[f"split_{cv_split}"]
         frame_index["split"] = split_index
 
         # TODO: could have check of GT availability here but probably better to do in generate_splits.py
@@ -370,7 +376,7 @@ class ImageToAttentionAndControlDataset(Dataset):
 
 class StackedImageToAttentionDataset(Dataset):
 
-    def __init__(self, config, split):
+    def __init__(self, config, split, cv_split=-1):
         super().__init__()
         self.data_root = config["data_root"]
         self.input_names = config["input_video_names"]
@@ -381,6 +387,8 @@ class StackedImageToAttentionDataset(Dataset):
 
         frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
         split_index = pd.read_csv(config["split_config"] + ".csv")
+        if cv_split >= 0:
+            split_index = split_index[f"split_{cv_split}"]
         frame_index["split"] = split_index
         self.index = frame_index[frame_index["split"] == self.split].copy().reset_index(drop=True)
 
@@ -610,7 +618,7 @@ class StackedImageToAttentionDataset(Dataset):
 
 class StackedImageAndStateToControlDataset(Dataset):
 
-    def __init__(self, config, split):
+    def __init__(self, config, split, cv_split=-1):
         super().__init__()
         self.data_root = config["data_root"]
         self.video_input_names = config["input_video_names"]
@@ -623,6 +631,8 @@ class StackedImageAndStateToControlDataset(Dataset):
 
         frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
         split_index = pd.read_csv(config["split_config"] + ".csv")
+        if cv_split >= 0:
+            split_index = split_index[f"split_{cv_split}"]
         frame_index["split"] = split_index
 
         ground_truth = pd.read_csv(os.path.join(self.data_root, "index", f"{self.output_name}.csv"))
@@ -797,7 +807,7 @@ class StackedImageAndStateToControlDataset(Dataset):
 
 class StateToControlDataset(Dataset):
 
-    def __init__(self, config, split):
+    def __init__(self, config, split, cv_split=-1):
         super().__init__()
         self.data_root = config["data_root"]
         self.input_names = config["drone_state_names"]
@@ -807,6 +817,8 @@ class StateToControlDataset(Dataset):
 
         frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
         split_index = pd.read_csv(config["split_config"] + ".csv")
+        if cv_split >= 0:
+            split_index = split_index[f"split_{cv_split}"]
         frame_index["split"] = split_index
 
         ground_truth = pd.read_csv(os.path.join(self.data_root, "index", f"{self.output_name}.csv"))

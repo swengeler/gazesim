@@ -14,8 +14,9 @@ import numpy as np
 import pandas as pd
 import json
 
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, StratifiedKFold
 from iterstrat.ml_stratifiers import MultilabelStratifiedShuffleSplit as MSSS
+from iterstrat.ml_stratifiers import MultilabelStratifiedKFold as MSKF
 from src.data.utils import filter_by_property_improved, pair
 
 
@@ -40,6 +41,38 @@ def find_best_split(d, i, ts, s):
             closest = test_dist
             closest_splits = (tri, tei)
     return closest_splits
+
+
+def ungroup_indices(data, grouped_data, group_by_columns, *indices):
+    total_index = np.arange(len(data.index))
+
+    ungrouped_indices = []
+    for idx in indices:
+        if isinstance(idx[0], np.ndarray):
+            ungrouped_idx = []
+            for sub_idx in idx:
+                sub_idx = list(zip(*grouped_data.index[sub_idx].tolist()))
+                match = False
+                for combination in zip(*sub_idx):
+                    current_match = True
+                    for col, value in zip(group_by_columns, combination):
+                        current_match = current_match & (data[col] == value)
+                    match = match | current_match
+                sub_idx = total_index[match]
+                ungrouped_idx.append(sub_idx)
+        else:
+            ungrouped_idx = list(zip(*grouped_data.index[idx].tolist()))
+            match = False
+            for combination in zip(*ungrouped_idx):
+                current_match = True
+                for col, value in zip(group_by_columns, combination):
+                    current_match = current_match & (data[col] == value)
+                match = match | current_match
+            ungrouped_idx = total_index[match]
+
+        ungrouped_indices.append(ungrouped_idx)
+
+    return tuple(ungrouped_indices)
 
 
 def generate_splits(data, config, return_data_index=False):
@@ -94,16 +127,29 @@ def generate_splits(data, config, return_data_index=False):
             if col_idx < len(group_by_columns) - 1:
                 strata += "_"
 
-        # first split into train and rest, then the rest into validation and test set
-        train_index, val_test_index = train_test_split(index, train_size=config["train_size"], stratify=strata,
-                                                       random_state=config["random_seed"])
-        if rel_val_size != 1.0:
-            val_index, test_index = train_test_split(val_test_index, train_size=rel_val_size,
-                                                     stratify=strata.iloc[val_test_index],
-                                                     random_state=config["random_seed"])
+        # create multiple indices for cross validation if cv_folds > 1
+        if config["cv_splits"] == 1:
+            # first split into train and rest, then the rest into validation and test set
+            train_index, val_test_index = train_test_split(index, train_size=config["train_size"], stratify=strata,
+                                                           random_state=config["random_seed"])
+            if rel_val_size != 1.0:
+                val_index, test_index = train_test_split(val_test_index, train_size=rel_val_size,
+                                                         stratify=strata.iloc[val_test_index],
+                                                         random_state=config["random_seed"])
+            else:
+                val_index = val_test_index
+                test_index = np.array([], dtype=int)
         else:
-            val_index = val_test_index
-            test_index = np.array([], dtype=int)
+            cv_generator = StratifiedKFold(n_splits=config["cv_splits"], random_state=config["random_seed"])
+            train_index = []
+            val_index = None
+            test_index = []
+            for tr_idx, te_idx in cv_generator.split(index, strata):
+                tr_idx = index[tr_idx]
+                te_idx = index[te_idx]
+
+                train_index.append(tr_idx)
+                test_index.append(te_idx)
     else:
         # group by the specified columns and create index and strata for the resulting dataframe
         # group_by_columns = group_by_columns
@@ -112,29 +158,38 @@ def generate_splits(data, config, return_data_index=False):
         index = np.arange(len(grouped_data.index))
         strata = np.array([idx[:stratification_level] for idx in grouped_data.index.values])
 
-        """
-        if strata.shape[-1] == 1:
-            print(index)
-            train_index, val_test_index = find_best_split(data, index, config["train_size"], strata)
-            val_index, test_index = find_best_split(data.iloc[val_test_index], val_test_index,
-                                                    rel_val_size, strata[val_test_index])
-            # not sure this will work...
+        if config["cv_splits"] == 1:
+            train_index, val_test_index = list(MSSS(n_splits=1, test_size=None, train_size=config["train_size"],
+                                                    random_state=config["random_seed"]).split(index, strata))[0]
+            if rel_val_size != 1.0:
+                val_index, test_index = list(MSSS(n_splits=1, test_size=None, train_size=rel_val_size,
+                                                  random_state=config["random_seed"])
+                                             .split(val_test_index, strata[val_test_index]))[0]
+                val_index = index[val_test_index[val_index]]
+                test_index = index[val_test_index[test_index]]
+            else:
+                val_index = index[val_test_index]
+                test_index = np.array([], dtype=int)
+            train_index = index[train_index]
+
+            train_index, val_index, test_index = ungroup_indices(data, grouped_data, group_by_columns,
+                                                                 train_index, val_index, test_index)
         else:
-        """
-        train_index, val_test_index = list(MSSS(n_splits=1, test_size=None, train_size=config["train_size"],
-                                                random_state=config["random_seed"]).split(index, strata))[0]
-        if rel_val_size != 1.0:
-            val_index, test_index = list(MSSS(n_splits=1, test_size=None, train_size=rel_val_size,
-                                              random_state=config["random_seed"])
-                                         .split(val_test_index, strata[val_test_index]))[0]
-            val_index = index[val_test_index[val_index]]
-            test_index = index[val_test_index[test_index]]
-        else:
-            val_index = index[val_test_index]
-            test_index = np.array([], dtype=int)
-        train_index = index[train_index]
+            cv_generator = MSKF(n_splits=config["cv_splits"], random_state=config["random_seed"])
+            train_index = []
+            val_index = None
+            test_index = []
+            for tr_idx, te_idx in cv_generator.split(index, strata):
+                tr_idx = index[tr_idx]
+                te_idx = index[te_idx]
+
+                train_index.append(tr_idx)
+                test_index.append(te_idx)
+
+            train_index, test_index = ungroup_indices(data, grouped_data, group_by_columns, train_index, test_index)
 
         # convert from the "grouped dataframe" index to the overall data index
+        """
         total_index = np.arange(len(data.index))
 
         train_index = list(zip(*grouped_data.index[train_index].tolist()))
@@ -165,6 +220,7 @@ def generate_splits(data, config, return_data_index=False):
                     current_match = current_match & (data[col] == value)
                 match = match | current_match
             test_index = total_index[match]
+        """
 
     if return_data_index:
         return train_index, val_index, test_index, data.index.values
@@ -217,30 +273,32 @@ def create_split_index(config):
     # create the splits
     train_index, val_index, test_index, data_index = generate_splits(df_frame_index, config, return_data_index=True)
 
-    # use the data index to determine the actual positions of the split indices
-    # TODO: maybe just do this inside the generate_splits() function?
-    train_index = data_index[train_index]
-    val_index = data_index[val_index]
-    test_index = data_index[test_index]
+    if config["cv_splits"] == 1:
+        # use the data index to determine the actual positions of the split indices
+        train_index = data_index[train_index]
+        val_index = data_index[val_index]
+        test_index = data_index[test_index]
 
-    # fill the dataframe with values indicating the splits
-    df_split.iloc[train_index] = "train"
-    df_split.iloc[val_index] = "val"
-    df_split.iloc[test_index] = "test"
+        # fill the dataframe with values indicating the splits
+        df_split.iloc[train_index, 0] = "train"
+        df_split.iloc[val_index, 0] = "val"
+        df_split.iloc[test_index, 0] = "test"
+    else:
+        # repeat the same as above for each split and store them in different columns
+        for s_idx, (tr_idx, te_idx) in enumerate(zip(train_index, test_index)):
+            df_split[f"split_{s_idx}"] = "none"
+
+            tr_idx = data_index[tr_idx]
+            te_idx = data_index[te_idx]
+
+            df_split.iloc[tr_idx, s_idx + 1] = "train"
+            df_split.iloc[te_idx, s_idx + 1] = "test"
+
+        df_split = df_split.drop("split", axis=1)
 
     # determine the name of the file to save the splits into and save the dataframe to CSV
-    """
-    filter_string = "-".join(["{}-{}".format(k, v) for k, v in config["filter"].items()])
-    split_name = "splits__train{}_val{}_test{}__sl{}__rs{}__{}.csv".format(
-        int(np.round(config["train_size"] * 100.0)),
-        int(np.round(config["val_size"] * 100.0)),
-        int(np.round(config["test_size"] * 100.0)),
-        config["stratification_level"],
-        config["random_seed"], filter_string
-    )
-    """
     split_info = {k: config[k] for k in config.keys()
-                  & {"train_size", "val_size", "test_size", "stratification_level", "group_by_level",
+                  & {"train_size", "val_size", "test_size", "cv_splits", "stratification_level", "group_by_level",
                      "random_seed", "filter", "filter_or"}}
 
     split_dir = os.path.join(config["data_root"], "splits")
@@ -269,38 +327,42 @@ def parse_config(args):
 if __name__ == "__main__":
     import argparse
 
-    PARSER = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser()
 
     # command line arguments
-    PARSER.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
+    parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    PARSER.add_argument("-trs", "--train_size", type=float, default=0.7,
+    parser.add_argument("-trs", "--train_size", type=float, default=0.7,
                         help="The relative size of the training split.")
-    PARSER.add_argument("-vs", "--val_size", type=float, default=0.15,
+    parser.add_argument("-vs", "--val_size", type=float, default=0.15,
                         help="The relative size of the validation split.")
-    PARSER.add_argument("-tes", "--test_size", type=float, default=0.15,
+    parser.add_argument("-tes", "--test_size", type=float, default=0.15,
                         help="The relative size of the test split.")
-    PARSER.add_argument("-sl", "--stratification_level", type=int, default=-1, choices=[-1, 2, 3, 4],
+    parser.add_argument("-cv", "--cv_splits", type=int, default=1,
+                        help="Number of cross validation folds (if cv_folds=1, only create a single "
+                             "train/test/val split). Since the data should only be split into two folds for "
+                             "each individual split, the parameters for train/test/val set size are ignored.")
+    parser.add_argument("-sl", "--stratification_level", type=int, default=-1, choices=[-1, 2, 3, 4],
                         help="Decides how the splits are generated in a stratified manner by trying to divide data "
                              "across the different splits as evenly as possible based on the frame properties "
                              "'track_name', 'subject', 'run', and 'lap_index' (in that order). The level refers to "
                              "the number of these that are used to define a 'class'; if -1 is chosen, frames from "
                              "the same lap can be put into different splits, otherwise the splits are 'cleanly "
                              "separated' by subject/run.")
-    PARSER.add_argument("-gbl", "--group_by_level", type=int, default=1, choices=[1, 2, 3, 4],
+    parser.add_argument("-gbl", "--group_by_level", type=int, default=1, choices=[1, 2, 3, 4],
                         help="TODO")
-    PARSER.add_argument("-rs", "--random_seed", type=int, default=112,
+    parser.add_argument("-rs", "--random_seed", type=int, default=112,
                         help="The random seed to use for generating the splits.")
-    PARSER.add_argument("-f", "--filter", type=pair, nargs="+", default=[],
+    parser.add_argument("-f", "--filter", type=pair, nargs="+", default=[],
                         help="Properties and their values to filter by in the format property_name:value.")
-    PARSER.add_argument("-fo", "--filter_or", type=pair, nargs="+", default=[], action="append",
+    parser.add_argument("-fo", "--filter_or", type=pair, nargs="+", default=[], action="append",
                         help="Properties and their values to filter by in the format property_name:value. "
                              "Uses OR instead of AND (-f/--filter) as condition. Multiple OR conditions "
                              "can be specified by repeating the flag.")
 
     # parse the arguments
-    ARGS = PARSER.parse_args()
+    arguments = parser.parse_args()
 
     # call the function thingy
-    create_split_index(parse_config(ARGS))
+    create_split_index(parse_config(arguments))
 

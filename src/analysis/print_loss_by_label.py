@@ -5,12 +5,11 @@ import pandas as pd
 import torch
 
 from torch.utils.data import DataLoader
-from torch.utils.data._utils.collate import default_collate as to_batch
 from tqdm import tqdm
-from src.data.utils import find_contiguous_sequences, resolve_split_index_path, run_info_to_path
+from pprint import pprint
+from src.data.utils import resolve_split_index_path
 from src.training.config import parse_config as parse_train_config
 from src.training.helpers import to_device, resolve_model_class, resolve_dataset_class
-from src.training.helpers import resolve_output_processing_func
 
 
 def generate(config):
@@ -93,7 +92,7 @@ def generate(config):
             if len(v["l1"]) > 0:
                 v["l1"] = np.mean(v["l1"])
 
-        print(loss_accumulator)
+        pprint(loss_accumulator)
 
 
 def parse_config(args):

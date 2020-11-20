@@ -11,15 +11,7 @@ from src.training.helpers import resolve_model_class, resolve_dataset_class, res
 from src.training.helpers import resolve_losses, resolve_output_processing_func, resolve_logger_class
 
 
-def train(config):
-    # set the seed for PyTorch
-    torch.manual_seed(config["torch_seed"])
-
-    # use GPU if possible
-    use_cuda = torch.cuda.is_available()
-    device = torch.device("cuda:{}".format(config["gpu"])
-                          if use_cuda and config["gpu"] < torch.cuda.device_count() else "cpu")
-
+def train(config, device):
     # generators
     training_set = resolve_dataset_class(config["dataset_name"])(config, split="train")
     training_generator = DataLoader(training_set, batch_size=config["batch_size"],
@@ -47,7 +39,8 @@ def train(config):
     loss_functions = resolve_losses(config["losses"])
 
     # define the logger
-    logger = resolve_logger_class(config["dataset_name"])(config, model, training_set)
+    logger = resolve_logger_class(config["dataset_name"], config["mode"])(config)
+    logger.update_info(model=model, dataset=training_set)
 
     # prepare for doing pass over validation data args.validation_frequency times each epoch
     validation_check = np.linspace(0, len(training_set), config["validation_frequency"] + 1)
@@ -129,6 +122,171 @@ def train(config):
         logger.training_epoch_end(global_step, epoch, model, optimiser)
 
 
+def cross_validate(config, device):
+    # TODO: what should the CV logger log?
+    #  - should the different CV runs be subdirectories or should they be stored as different scalars/variables?
+    #    => maybe these should just be entirely different, e.g. "cv/loss/..."
+    #  - do we even want to log e.g. training loss with cross validation?
+    #    => probably should, just to see if everything's progressing
+    #  - how should the final output of the cross-validation be saved?
+
+    # define the classes here (could also be done in main...)
+    dataset_class = resolve_dataset_class(config["dataset_name"])
+    model_class = resolve_model_class(config["model_name"])
+    optimiser_class = resolve_optimiser_class(config["optimiser"])
+
+    # define the loss function(s)
+    loss_functions = resolve_losses(config["losses"])
+
+    # define the logger
+    logger = resolve_logger_class(config["dataset_name"], config["mode"])(config)
+
+    for cv_split in range(config["cv_splits"]):
+        print("Starting split {:02d}!".format(cv_split))
+
+        # generators
+        training_set = dataset_class(config, split="train", cv_split=cv_split)
+        training_generator = DataLoader(training_set, batch_size=config["batch_size"],
+                                        shuffle=True, num_workers=config["num_workers"])
+
+        validation_set = dataset_class(config, split="val", cv_split=cv_split)
+        validation_generator = DataLoader(validation_set, batch_size=config["batch_size"],
+                                          shuffle=False, num_workers=config["num_workers"])
+
+        # define the model, no loading functionality here for now, would only make sense with something
+        # like dreyeve and then it would probably take way to long to train for cross validation
+        model = model_class(config)
+        model = model.to(device)
+
+        # update logger
+        logger.update_info(model=model, dataset=training_set, split=cv_split)
+
+        # define the optimiser, no loading same as for models
+        optimiser = optimiser_class(model.parameters(), lr=config["learning_rate"])
+
+        # prepare for doing pass over validation data args.validation_frequency times each epoch
+        validation_check = np.linspace(0, len(training_set), config["validation_frequency"] + 1)
+        validation_check = np.round(validation_check).astype(int)
+        validation_check = validation_check[1:]
+
+        # loop over epochs
+        global_step = 0
+        for epoch in range(config["num_epochs"]):
+            print("Starting epoch {:03d}!".format(epoch))
+            validation_current = 0
+
+            model.train()
+            for batch_index, batch in tqdm(enumerate(training_generator), total=len(training_generator)):
+                # transfer to GPU
+                batch = to_device(batch, device)
+
+                # forward pass, loss computation and backward pass
+                optimiser.zero_grad()
+                predictions = model(batch)
+                total_loss = None
+                partial_losses = {}
+                for output in predictions:
+                    current_prediction = resolve_output_processing_func(output)(predictions[output])
+                    current_loss = loss_functions[output](current_prediction, batch[output])
+                    if total_loss is None:
+                        total_loss = current_loss
+                    else:
+                        total_loss += current_loss
+                    partial_losses[output] = total_loss
+                total_loss.backward()
+                optimiser.step()
+
+                with torch.no_grad():
+                    global_step += get_batch_size(batch)
+
+                    # log at the end of each training step (each batch)
+                    logger.training_step_end(global_step, total_loss, partial_losses, batch, predictions)
+
+                    # do validation if it should be done
+                    if (global_step - epoch * len(training_set)) >= validation_check[validation_current]:
+                        disable = True
+                        if config["validation_frequency"] == 1:
+                            print("Validation for epoch {:03d}!".format(epoch))
+                            disable = False
+
+                        model.eval()
+                        for val_batch_index, val_batch in tqdm(enumerate(validation_generator), disable=disable,
+                                                               total=len(validation_generator)):
+                            # transfer to GPU
+                            val_batch = to_device(val_batch, device)
+
+                            # forward pass and loss computation
+                            val_predictions = model(val_batch)
+                            total_val_loss = None
+                            partial_val_losses = {}
+                            for output in val_predictions:
+                                current_prediction = resolve_output_processing_func(output)(val_predictions[output])
+                                current_loss = loss_functions[output](current_prediction, val_batch[output])
+                                if total_val_loss is None:
+                                    total_val_loss = current_loss
+                                else:
+                                    total_val_loss += current_loss
+                                partial_val_losses[output] = current_loss
+
+                            # tracking the loss in the logger
+                            # TODO: should probably also just record the validation error(s) for the
+                            #  different splits in the logger and then save them in the logger as well
+                            logger.validation_step_end(global_step, total_val_loss, partial_val_losses, val_batch,
+                                                       val_predictions)
+
+                        # log after the complete pass over the validation set
+                        logger.validation_epoch_end(global_step, epoch, model, optimiser)
+
+                        # update index for checking whether we should run validation loop
+                        validation_current += 1
+                        model.train()
+
+            # log at the end of the epoch
+            logger.training_epoch_end(global_step, epoch, model, optimiser)
+
+            with torch.no_grad():
+                model.eval()
+                for train_batch_index, train_batch in tqdm(enumerate(training_generator), disable=disable,
+                                                           total=len(training_generator)):
+                    # transfer to GPU
+                    train_batch = to_device(train_batch, device)
+
+                    # forward pass and loss computation
+                    train_predictions = model(train_batch)
+                    total_train_loss = None
+                    partial_train_losses = {}
+                    for output in train_predictions:
+                        current_prediction = resolve_output_processing_func(output)(train_predictions[output])
+                        current_loss = loss_functions[output](current_prediction, train_batch[output])
+                        if total_train_loss is None:
+                            total_train_loss = current_loss
+                        else:
+                            total_train_loss += current_loss
+                        partial_train_losses[output] = current_loss
+
+                    # tracking the loss in the logger
+                    logger.final_training_pass_step_end(global_step, total_train_loss, partial_train_losses,
+                                                        train_batch, train_predictions)
+
+                # log after the complete pass over the training set
+                logger.final_training_pass_epoch_end(global_step, epoch, model, optimiser)
+                model.train()
+
+
+def main(config):
+    # set the seed for PyTorch
+    torch.manual_seed(config["torch_seed"])
+
+    # use GPU if possible
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda:{}".format(config["gpu"])
+                          if use_cuda and config["gpu"] < torch.cuda.device_count() else "cpu")
+
+    # check what to do: at the moment only choice between training and cross validation
+    # would be easier to just specify that training/CV should be done rather than checking automatically...
+    {"train": train, "cv": cross_validate}[config["mode"]](config, device)
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -165,6 +323,8 @@ if __name__ == "__main__":
                              "architecture, the current weights and the state of the optimiser).")
 
     # arguments related to training
+    parser.add_argument("-md", "--mode", type=str, choices=["train", "cv"],
+                        help="Mode to train in, currently only 'normal' training and cross validation.")
     parser.add_argument("-g", "--gpu", type=int,
                         help="GPU to use for training if any are available.")
     parser.add_argument("-ts", "--torch_seed", type=int,
@@ -202,4 +362,4 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
 
     # train
-    train(parse_config(arguments))
+    main(parse_config(arguments))

@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from src.training.loggers import ControlLogger, TestLogger, AttentionLogger
+from src.training.loggers import ControlLogger, TestLogger, AttentionLogger, CVControlLogger
 from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset, StateToControlDataset, StackedImageAndStateToControlDataset
 from src.data.datasets import StackedImageToAttentionDataset
 from src.models.c3d import C3DRegressor, C3DStateRegressor
@@ -138,15 +138,15 @@ def resolve_dataset_class(dataset_name):
     }[dataset_name]
 
 
-def resolve_logger_class(dataset_name):
-    return {
-        "StackedImageToControlDataset": ControlLogger,
-        "StackedImageAndStateToControlDataset": ControlLogger,
-        "ImageToControlDataset": ControlLogger,
-        "ImageAndStateToControlDataset": ControlLogger,
-        "StateToControlDataset": ControlLogger,
-        "StackedImageToAttentionDataset": AttentionLogger
-    }[dataset_name]
+def resolve_logger_class(dataset_name, mode):
+    if "Control" in dataset_name:
+        if mode == "train":
+            return ControlLogger
+        elif mode == "cv":
+            return CVControlLogger
+    else:
+        if mode == "train":
+            return AttentionLogger
 
 
 def resolve_resize_parameters(model_name):

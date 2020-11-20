@@ -20,6 +20,7 @@ DEFAULT_VALUES = {
     "model_name": "codevilla_multi_head",
     "model_load_path": None,
 
+    "mode": "train",
     "gpu": 0,
     "torch_seed": 127,
     "num_workers": 4,
@@ -83,6 +84,10 @@ def parse_config(args):
 
     # config entries related to the data to load
     config["split_config"] = resolve_split_index_path(config["split_config"], data_root=config["data_root"])
+    if config["mode"] == "cv":
+        import pandas as pd
+        config["cv_splits"] = len(pd.read_csv(config["split_config"] + ".csv").columns)
+        config["no_normalisation"] = True  # TODO: might not want to do this automatically
 
     # config entries related to the model
     config["model_info"] = None
