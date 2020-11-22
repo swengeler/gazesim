@@ -12,71 +12,75 @@ from src.data.transforms import MakeValidDistribution, ImageToAttentionMap, Manu
 from src.data.constants import STATISTICS
 
 
-class ImageDataset(Dataset):
-    # maybe have some generic methods to get some frame from some video?
-    # maybe some data structures to keep track of videos to load from?
-    pass
+# TODO: how do data augmentation?
+def compose_augmentation_transform():
+    transform = transforms.RandomApply([
+        transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+        transforms.RandomErasing()
+    ])
+    # GaussianBlur apparently not in this version of pytorch
+    # Gaussian noise with this? https://github.com/pytorch/vision/issues/712#issuecomment-493021839
+    # no salt-and-pepper or other noise => might want custom class
+    # https://gist.github.com/oeway/2e3b989e0343f0884388ed7ed82eb3b0 might be a good reference for some stuff
 
 
-class ImageToAttentionDataset(Dataset):
+class GenericDataset(Dataset):
 
     def __init__(self, config, split, cv_split=-1):
-        super().__init__()
-        # TODO: before re-implementing these classes, should probably figure out in what way train/val/test splits
-        #  are going to be represented and (probably more importantly) how they will be generated...
-        #  => for now assume that train/val/test splits are already defined in some split index files
-        #     and do not have to be generated dynamically (this could only be done leaving away
-        #     normalisation or using global - not training set - statistics)
-
-        # what information is required for this
-        # - input video name(s)
-        # - output video name
-        # - split index file path or index
-        # - which split to actually use
-        # - do we want/need a subindex? guess I'll leave it out for now...
-        # - should the data/label transform be defined in the class itself or outside it?
-        #   => considering that we load the dataset statistics alongside the split index, probably inside it
         self.data_root = config["data_root"]
-        self.input_names = config["input_video_names"]
-        self.output_name = config["ground_truth_name"]
+        # TODO: this needs to change if we want multiple possible outputs... should this be a list? or should
+        #  there be specific inputs for control_gt, attention_gt etc. => I think this would be better actually
         self.split = split
 
-        frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
+        # load the index and data and select the subset to be used
+        self.index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
         split_index = pd.read_csv(config["split_config"] + ".csv")
         if cv_split >= 0:
             split_index = split_index[f"split_{cv_split}"]
-        frame_index["split"] = split_index
-        self.index = frame_index[frame_index["split"] == self.split]
-        # TODO: should it be possible to filter here as well? right now I'm just doing the filtering in the
-        #  creation of the split index files, which makes things cleaner for statistics and mean masks
-        #  => I think it's best to leave it at that for now; if I decide to e.g. compute "global" statistics
-        #     at some point (which is not conceptually correct I think), then this would be an option to make
-        #     things more flexible (without having to generate splits in advance as well)
+        self.index["split"] = split_index
+        self.sub_index = self.index["split"] == self.split  # TODO: maybe do this with .loc[self.index.index]?
+        self.index = self.index[self.sub_index]
 
-        # TODO: if there is no specific information for mean/std for a video, should default to something
-        with open(config["split_config"] + "_info.json", "r") as f:
-            split_index_info = json.load(f)
-        input_statistics = {}
-        for i in self.input_names:
-            if config["no_normalisation"]:
-                input_statistics[i] = {"mean": np.array([0, 0, 0]), "std": np.array([1, 1, 1])}
-            else:
-                if "mean" in split_index_info and "std" in split_index_info:
-                    input_statistics[i] = {
-                        "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
-                        "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
-                    }
-                else:
-                    input_statistics[i] = {
-                        "mean": STATISTICS["mean"][i],
-                        "std": STATISTICS["std"][i]
-                    }
-        self.input_transforms = [transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize(config["resize"]),
-            transforms.ToTensor(),
-            transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
-        ]) for i in self.input_names]
+        # include the high-level labels as well
+        self.index["label"] = 4
+        for idx, (track_name, half) in enumerate([("flat", "left_half"), ("flat", "right_half"),
+                                                  ("wave", "left_half"), ("wave", "right_half")]):
+            self.index.loc[(self.index["track_name"] == track_name) & (self.index[half] == 1), "label"] = idx
+
+    def __len__(self):
+        return len(self.index.index)
+
+
+class ToControlDataset(GenericDataset):
+
+    def __init__(self, config, split, cv_split=-1):
+        super().__init__(config, split, cv_split)
+
+        self.control_output_name = config["control_ground_truth"]
+        self.output_columns = []
+
+        # load additional information and put it in the index
+        ground_truth = pd.read_csv(os.path.join(self.data_root, "index", f"{self.control_output_name}.csv"))
+        ground_truth = ground_truth.loc[self.sub_index]
+        for col in ground_truth:
+            self.index[col] = ground_truth[col]
+            self.output_columns.append(col)
+
+    def _get_control(self, item):
+        # extract the control GT from the dataframe
+        control = self.index[self.output_columns].iloc[item].values
+        control = torch.from_numpy(control).float()
+
+        return control
+
+
+class ToAttentionDataset(GenericDataset):
+
+    def __init__(self, config, split, cv_split=-1):
+        super().__init__(config, split, cv_split)
+
+        self.attention_output_name = config["attention_ground_truth"]
+
         self.output_transform = transforms.Compose([
             ImageToAttentionMap(),
             transforms.ToPILImage(),
@@ -85,201 +89,37 @@ class ImageToAttentionDataset(Dataset):
             MakeValidDistribution()
         ])
 
-        self.video_readers = {}
-        """
-        self.index["run_dir"] = None
-        unique_run_info = self.index.groupby(["track_name", "subject", "run"]).size().reset_index()
-        print("Preparing video readers!")
-        for _, row in tqdm(unique_run_info.iterrows()):
-            run_dir = os.path.join(self.data_root, run_info_to_path(row["subject"], row["run"], row["track_name"]))
-            if run_dir not in self.video_readers:
-                self.video_readers[run_dir] = {
-                    f"input_image_{idx}": get_indexed_reader(os.path.join(run_dir, f"{i}.mp4"))
-                    for idx, i in enumerate(self.input_names)
-                }
-                self.video_readers[run_dir]["output_attention"] = get_indexed_reader(os.path.join(
-                    run_dir, f"{self.output_name}.mp4"))
-            self.index.loc[(self.index["track_name"] == row["track_name"])
-                           & (self.index["subject"] == row["subject"])
-                           & (self.index["run"] == row["run"]), "run_dir"] = run_dir
-        """
+        self.video_output_readers = {}
 
-    def __len__(self):
-        return len(self.index.index)
-
-    def __getitem__(self, item):
-        # get the information about the current item
+    def _get_attention(self, item):
         current_row = self.index.iloc[item]
         current_frame_index = current_row["frame"]
-        # current_run_dir = current_row["run_dir"]
         current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
                                                                         current_row["run"],
                                                                         current_row["track_name"]))
 
         # initialise the video readers if necessary
-        if current_run_dir not in self.video_readers:
-            self.video_readers[current_run_dir] = {
-                f"input_image_{idx}": get_indexed_reader(os.path.join(current_run_dir, f"{i}.mp4"))
-                for idx, i in enumerate(self.input_names)
-            }
-            self.video_readers[current_run_dir]["output_attention"] = get_indexed_reader(os.path.join(
-                current_run_dir, f"{self.output_name}.mp4"))
-
-        # read the frames
-        inputs = [self.video_readers[current_run_dir][f"input_image_{idx}"][current_frame_index]
-                  for idx in range(len(self.input_names))]
-        output = self.video_readers[current_run_dir]["output_attention"][current_frame_index]
-
-        # start constructing the output dictionary => keep the original frames in there
-        out = {"original": {f"input_image_{idx}": np.array(i.copy()) for idx, i in enumerate(inputs)}}
-        out["original"]["output_attention"] = np.array(output.copy())
-
-        # apply transforms to the inputs and output
-        for idx, i in enumerate(inputs):
-            out[f"input_image_{idx}"] = self.input_transforms[idx](i)
-        out["output_attention"] = self.output_transform(output)
-
-        # return a dictionary
-        return out
-
-
-class ImageToControlDataset(Dataset):
-
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__()
-        self.data_root = config["data_root"]
-        self.input_names = config["input_video_names"]
-        self.output_name = config["ground_truth_name"]
-        self.split = split
-        self.output_columns = []
-
-        frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
-        split_index = pd.read_csv(config["split_config"] + ".csv")
-        if cv_split >= 0:
-            split_index = split_index[f"split_{cv_split}"]
-        frame_index["split"] = split_index
-
-        # TODO: could have check of GT availability here but probably better to do in generate_splits.py
-        ground_truth_index = pd.read_csv(os.path.join(self.data_root, "index", "control_gt.csv"))
-        ground_truth = pd.read_csv(os.path.join(self.data_root, "index", f"{self.output_name}.csv"))
-        for col in ground_truth:
-            frame_index[col] = ground_truth[col]
-            self.output_columns.append(col)
-
-        self.index = frame_index[frame_index["split"] == self.split]
-
-        with open(config["split_config"] + "_info.json", "r") as f:
-            split_index_info = json.load(f)
-        input_statistics = {}
-        for i in self.input_names:
-            if config["no_normalisation"]:
-                input_statistics[i] = {"mean": np.array([0, 0, 0]), "std": np.array([1, 1, 1])}
-            else:
-                if "mean" in split_index_info and "std" in split_index_info:
-                    input_statistics[i] = {
-                        "mean": split_index_info["mean"][i] if i in split_index_info["mean"] else STATISTICS["mean"][i],
-                        "std": split_index_info["std"][i] if i in split_index_info["std"] else STATISTICS["std"][i]
-                    }
-                else:
-                    input_statistics[i] = {
-                        "mean": STATISTICS["mean"][i],
-                        "std": STATISTICS["std"][i]
-                    }
-        self.input_transforms = [transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize(config["resize"]),
-            transforms.ToTensor(),
-            transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
-        ]) for i in self.input_names]
-
-        self.video_readers = {}
-        """
-        self.index["run_dir"] = None
-        unique_run_info = self.index.groupby(["track_name", "subject", "run"]).size().reset_index()
-        for _, row in unique_run_info.iterrows():
-            run_dir = os.path.join(self.data_root, run_info_to_path(row["subject"], row["run"], row["track_name"]))
-            if run_dir not in self.video_readers:
-                self.video_readers[run_dir] = {
-                    f"input_image_{idx}": get_indexed_reader(os.path.join(run_dir, f"{i}.mp4"))
-                    for idx, i in enumerate(self.input_names)
-                }
-            self.index.loc[(self.index["track_name"] == row["track_name"])
-                           & (self.index["subject"] == row["subject"])
-                           & (self.index["run"] == row["run"]), "run_dir"] = run_dir
-        """
-
-    def __len__(self):
-        return len(self.index.index)
-
-    def __getitem__(self, item):
-        # get the information about the current item
-        current_row = self.index.iloc[item]
-        current_frame_index = current_row["frame"]
-        # current_run_dir = current_row["run_dir"]
-        current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
-                                                                        current_row["run"],
-                                                                        current_row["track_name"]))
-
-        # initialise the video readers if necessary
-        if current_run_dir not in self.video_readers:
-            self.video_readers[current_run_dir] = {
-                f"input_image_{idx}": get_indexed_reader(os.path.join(current_run_dir, f"{i}.mp4"))
-                for idx, i in enumerate(self.input_names)
+        if current_run_dir not in self.video_output_readers:
+            self.video_output_readers[current_run_dir] = {
+                "output_attention": get_indexed_reader(os.path.join(current_run_dir, f"{self.attention_output_name}.mp4"))
             }
 
-        # read the input frames
-        inputs = [self.video_readers[current_run_dir][f"input_image_{idx}"][current_frame_index]
-                  for idx in range(len(self.input_names))]
+        # read the frame
+        attention = self.video_output_readers[current_run_dir]["output_attention"][current_frame_index]
 
-        # extract the control GT from the dataframe
-        output = self.index[self.output_columns].iloc[item].values
+        # original and transformed
+        attention_original = np.array(attention.copy())
+        attention = self.output_transform(attention)
 
-        # start constructing the output dictionary => keep the original frames in there
-        out = {"original": {f"input_image_{idx}": np.array(i.copy()) for idx, i in enumerate(inputs)}}
-
-        # apply transforms to the inputs and output
-        for idx, i in enumerate(inputs):
-            out[f"input_image_{idx}"] = self.input_transforms[idx](i)
-        out["output_control"] = torch.from_numpy(output).float()
-
-        # return a dictionary
-        return out
+        return attention, attention_original
 
 
-class ImageAndStateToControlDataset(Dataset):
+class ImageDataset(GenericDataset):
 
     def __init__(self, config, split, cv_split=-1):
-        super().__init__()
-        self.data_root = config["data_root"]
+        super().__init__(config, split, cv_split)
+
         self.video_input_names = config["input_video_names"]
-        self.state_input_names = config["drone_state_names"]
-        self.output_name = config["ground_truth_name"]
-        self.output_columns = []
-        self.split = split
-
-        frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
-        split_index = pd.read_csv(config["split_config"] + ".csv")
-        if cv_split >= 0:
-            split_index = split_index[f"split_{cv_split}"]
-        frame_index["split"] = split_index
-
-        # TODO: could have check of GT availability here but probably better to do in generate_splits.py
-        ground_truth_index = pd.read_csv(os.path.join(self.data_root, "index", "control_gt.csv"))
-        ground_truth = pd.read_csv(os.path.join(self.data_root, "index", f"{self.output_name}.csv"))
-        for col in ground_truth:
-            frame_index[col] = ground_truth[col]
-            self.output_columns.append(col)
-
-        drone_state = pd.read_csv(os.path.join(self.data_root, "index", "state.csv"))
-        for col in self.state_input_names:
-            frame_index[col] = drone_state[col]
-
-        self.index = frame_index[frame_index["split"] == self.split].copy()
-
-        self.index["label"] = 4
-        for idx, (track_name, half) in enumerate([("flat", "left_half"), ("flat", "right_half"),
-                                                  ("wave", "left_half"), ("wave", "right_half")]):
-            self.index.loc[(self.index["track_name"] == track_name) & (self.index[half] == 1), "label"] = idx
 
         with open(config["split_config"] + "_info.json", "r") as f:
             split_index_info = json.load(f)
@@ -305,73 +145,158 @@ class ImageAndStateToControlDataset(Dataset):
             transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
         ]) for i in self.video_input_names]
 
-        self.video_readers = {}
-        """
-        self.index["run_dir"] = None
-        unique_run_info = self.index.groupby(["track_name", "subject", "run"]).size().reset_index()
-        print("Preparing video readers!")
-        for _, row in tqdm(unique_run_info.iterrows()):
-            run_dir = os.path.join(self.data_root, run_info_to_path(row["subject"], row["run"], row["track_name"]))
-            if run_dir not in self.video_readers:
-                self.video_readers[run_dir] = {
-                    f"input_image_{idx}": get_indexed_reader(os.path.join(run_dir, f"{i}.mp4"))
-                    for idx, i in enumerate(self.video_input_names)
-                }
-            self.index.loc[(self.index["track_name"] == row["track_name"])
-                           & (self.index["subject"] == row["subject"])
-                           & (self.index["run"] == row["run"]), "run_dir"] = run_dir
-        """
+        self.video_input_readers = {}
 
-    def __len__(self):
-        return len(self.index.index)
-
-    def __getitem__(self, item):
-        # get the information about the current item
+    def _get_image(self, item):
         current_row = self.index.iloc[item]
         current_frame_index = current_row["frame"]
-        # current_run_dir = current_row["run_dir"]
         current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
                                                                         current_row["run"],
                                                                         current_row["track_name"]))
 
         # initialise the video readers if necessary
-        if current_run_dir not in self.video_readers:
-            # print(os.path.join(current_run_dir, f"{self.video_input_names[1]}.mp4"))
-            self.video_readers[current_run_dir] = {
+        if current_run_dir not in self.video_input_readers:
+            self.video_input_readers[current_run_dir] = {
                 f"input_image_{idx}": get_indexed_reader(os.path.join(current_run_dir, f"{i}.mp4"))
                 for idx, i in enumerate(self.video_input_names)
             }
 
-        # read the input frames
-        video_inputs = [self.video_readers[current_run_dir][f"input_image_{idx}"][current_frame_index]
-                        for idx in range(len(self.video_input_names))]
+        # read the frames
+        image = [self.video_input_readers[current_run_dir][f"input_image_{idx}"][current_frame_index]
+                 for idx in range(len(self.video_input_names))]
 
-        # read the state input
-        state_input = self.index[self.state_input_names].iloc[item].values
+        # original and non-original
+        image_original = [np.array(i.copy()) for i in image]
+        image = [self.video_input_transforms[idx](i) for idx, i in enumerate(image)]
 
-        # determine the "high level command" label for the sample
-        high_level_label = self.index["label"].iloc[item]
+        return image, image_original
 
-        # extract the control GT from the dataframe
-        output = self.index[self.output_columns].iloc[item].values
 
-        # start constructing the output dictionary => keep the original frames in there
-        out = {"original": {f"input_image_{idx}": np.array(i.copy()) for idx, i in enumerate(video_inputs)}}
+class StateDataset(GenericDataset):
 
-        # apply transforms to the inputs and output
-        for idx, i in enumerate(video_inputs):
-            # TODO: maybe rename these to video_input_X or image_input_X in all classes?
-            out[f"input_image_{idx}"] = self.video_input_transforms[idx](i)
-        out["input_state"] = torch.from_numpy(state_input).float()
-        out["output_control"] = torch.from_numpy(output).float()
-        out["label_high_level"] = high_level_label
+    def __init__(self, config, split, cv_split=-1):
+        super().__init__(config, split, cv_split)
 
-        # return a dictionary
+        self.state_input_names = config["drone_state_names"]
+
+        # load additional information and put it in the index
+        drone_state = pd.read_csv(os.path.join(self.data_root, "index", "state.csv"))
+        drone_state = drone_state.loc[self.sub_index]
+        for col in self.state_input_names:
+            self.index[col] = drone_state[col]
+
+    def _get_state(self, item):
+        # read the state
+        state = self.index[self.state_input_names].iloc[item].values
+        state = torch.from_numpy(state).float()
+
+        return state
+
+
+class ImageToAttentionDataset(ImageDataset, ToAttentionDataset):
+
+    def __getitem__(self, item):
+        image, image_original = self._get_image(item)
+        attention, attention_original = self._get_attention(item)
+        label = self.index["label"].iloc[item]
+
+        # original
+        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        out["original"]["output_attention"] = attention_original
+
+        # transformed
+        for idx, i in enumerate(image):
+            out[f"input_image_{idx}"] = i
+        out["output_attention"] = attention
+        out["label_high_level"] = label
+
         return out
 
 
-class ImageToAttentionAndControlDataset(Dataset):
-    pass
+class ImageToControlDataset(ImageDataset, ToControlDataset):
+
+    def __getitem__(self, item):
+        image, image_original = self._get_image(item)
+        control = self._get_control(item)
+        label = self.index["label"].iloc[item]
+
+        # original
+        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+
+        # transformed
+        for idx, i in enumerate(image):
+            out[f"input_image_{idx}"] = i
+        out["output_control"] = control
+        out["label_high_level"] = label
+
+        return out
+
+
+class ImageAndStateToControlDataset(ImageDataset, StateDataset, ToControlDataset):
+
+    def __getitem__(self, item):
+        image, image_original = self._get_image(item)
+        state = self._get_state(item)
+        control = self._get_control(item)
+        label = self.index["label"].iloc[item]
+
+        # original
+        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+
+        # transformed
+        for idx, i in enumerate(image):
+            out[f"input_image_{idx}"] = i
+        out["input_state"] = state
+        out["output_control"] = control
+        out["label_high_level"] = label
+
+        return out
+
+
+class ImageToAttentionAndControlDataset(ImageDataset, ToAttentionDataset, ToControlDataset):
+
+    def __getitem__(self, item):
+        image, image_original = self._get_image(item)
+        attention, attention_original = self._get_attention(item)
+        control = self._get_control(item)
+        label = self.index["label"].iloc[item]
+
+        # original
+        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        out["original"]["output_attention"] = attention_original
+
+        # transformed
+        for idx, i in enumerate(image):
+            out[f"input_image_{idx}"] = i
+        out["output_attention"] = attention
+        out["output_control"] = control
+        out["label_high_level"] = label
+
+        return out
+
+
+class ImageAndStateToAttentionAndControlDataset(ImageDataset, StateDataset, ToAttentionDataset, ToControlDataset):
+
+    def __getitem__(self, item):
+        image, image_original = self._get_image(item)
+        state = self._get_state(item)
+        attention, attention_original = self._get_attention(item)
+        control = self._get_control(item)
+        label = self.index["label"].iloc[item]
+
+        # original
+        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        out["original"]["output_attention"] = attention_original
+
+        # transformed
+        for idx, i in enumerate(image):
+            out[f"input_image_{idx}"] = i
+        out["input_state"] = state
+        out["output_attention"] = attention
+        out["output_control"] = control
+        out["label_high_level"] = label
+
+        return out
 
 
 class StackedImageToAttentionDataset(Dataset):
@@ -805,71 +730,47 @@ class StackedImageAndStateToControlDataset(Dataset):
         return out
 
 
-class StateToControlDataset(Dataset):
-
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__()
-        self.data_root = config["data_root"]
-        self.input_names = config["drone_state_names"]
-        self.output_name = config["ground_truth_name"]
-        self.output_columns = []
-        self.split = split
-
-        frame_index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
-        split_index = pd.read_csv(config["split_config"] + ".csv")
-        if cv_split >= 0:
-            split_index = split_index[f"split_{cv_split}"]
-        frame_index["split"] = split_index
-
-        ground_truth = pd.read_csv(os.path.join(self.data_root, "index", f"{self.output_name}.csv"))
-        for col in ground_truth:
-            frame_index[col] = ground_truth[col]
-            self.output_columns.append(col)
-
-        drone_state = pd.read_csv(os.path.join(self.data_root, "index", "state.csv"))
-        for col in self.input_names:
-            frame_index[col] = drone_state[col]
-
-        self.index = frame_index[frame_index["split"] == self.split].copy()
-
-        self.index["label"] = 4
-        for idx, (track_name, half) in enumerate([("flat", "left_half"), ("flat", "right_half"),
-                                                  ("wave", "left_half"), ("wave", "right_half")]):
-            self.index.loc[(self.index["track_name"] == track_name) & (self.index[half] == 1), "label"] = idx
-
-    def __len__(self):
-        return len(self.index.index)
+class StateToControlDataset(StateDataset, ToControlDataset):
 
     def __getitem__(self, item):
-        # get the information about the current item
-        current_row = self.index.iloc[item]
-        current_frame_index = current_row["frame"]
-        # current_run_dir = current_row["run_dir"]
-        current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
-                                                                        current_row["run"],
-                                                                        current_row["track_name"]))
+        state = self._get_state(item)
+        control = self._get_control(item)
+        label = self.index["label"].iloc[item]
 
-        # read the state input
-        state_input = self.index[self.input_names].iloc[item].values
-
-        # determine the "high level command" label for the sample
-        high_level_label = self.index["label"].iloc[item]
-
-        # extract the control GT from the dataframe
-        output = self.index[self.output_columns].iloc[item].values
-
-        # compile everything
+        # no need to store any original stuff
         out = {
-            "input_state": torch.from_numpy(state_input).float(),
-            "output_control": torch.from_numpy(output).float(),
-            "label_high_level": high_level_label
+            "input_state": state,
+            "output_control": control,
+            "label_high_level": label
         }
 
-        # return a dictionary
         return out
 
 
 if __name__ == "__main__":
+    test_config = {
+        "data_root": os.getenv("GAZESIM_ROOT"),
+        "input_video_names": ["screen"],
+        "drone_state_names": ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ"],
+        "attention_ground_truth": "moving_window_frame_mean_gt",
+        "control_ground_truth": "drone_control_frame_mean_gt",
+        "resize": 150,
+        "split_config": resolve_split_index_path(11, data_root=os.getenv("GAZESIM_ROOT")),
+        "no_normalisation": True
+    }
+
+    dataset = ImageAndStateToAttentionAndControlDataset(test_config, "val")
+    print(len(dataset))
+
+    sample = dataset[0]
+    print("sample:", sample.keys())
+    print(sample["input_image_0"].shape)
+    print(sample["input_state"].shape)
+    print(sample["output_attention"].shape)
+    print(sample["output_control"].shape)
+
+    exit(0)
+
     test_config = {
         "data_root": os.getenv("GAZESIM_ROOT"),
         "input_video_names": ["screen"],

@@ -149,7 +149,7 @@ def cross_validate(config, device):
         training_generator = DataLoader(training_set, batch_size=config["batch_size"],
                                         shuffle=True, num_workers=config["num_workers"])
 
-        validation_set = dataset_class(config, split="val", cv_split=cv_split)
+        validation_set = dataset_class(config, split="test", cv_split=cv_split)
         validation_generator = DataLoader(validation_set, batch_size=config["batch_size"],
                                           shuffle=False, num_workers=config["num_workers"])
 
@@ -305,8 +305,12 @@ if __name__ == "__main__":
                         help="The column names/quantities to use as input when there is a drone state input. "
                              "Can also specify the following shorthands for pre-defined sets of columns: "
                              "'all', 'vel', 'acc', 'ang_vel'.")
-    parser.add_argument("-gtn", "--ground_truth_name", type=str,
+    parser.add_argument("-agt", "--attention_ground_truth", type=str,
                         help="The (file) name(s) for the video(s) to use as targets for attention.")
+    parser.add_argument("-cgt", "--control_ground_truth", type=str,
+                        help="The (file) name(s) for the video(s) to use as targets for attention.")
+    # parser.add_argument("-gtn", "--ground_truth_name", type=str,  # TODO: remove
+    #                     help="The (file) name(s) for the video(s) to use as targets for attention.")
     parser.add_argument("-c", "--config_file", type=str,
                         help="Config file to load parameters from.")
     parser.add_argument("-nn", "--no_normalisation", action="store_true",
@@ -316,7 +320,8 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--model_name", type=str,
                         choices=["codevilla", "c3d", "c3d_state", "codevilla300", "codevilla_skip",
                                  "codevilla_multi_head", "codevilla_dual_branch", "codevilla_no_state", "resnet_state",
-                                 "resnet", "resnet_larger", "resnet_state_larger", "state_only", "dreyeve_branch"],
+                                 "resnet", "resnet_larger", "resnet_state_larger", "resnet_larger_att_ctrl",
+                                 "state_only", "dreyeve_branch"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,  # TODO: maybe adjust for dreyeve net
                         help="Path to load a model checkpoint from (including information about the "

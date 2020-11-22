@@ -358,6 +358,83 @@ class ResNetLargerRegressor(LoadableModule):
         return out
 
 
+class ResNetLargerAttentionAndControl(LoadableModule):
+
+    def __init__(self, config=None):
+        super().__init__()
+
+        # defining the feature-extracting CNN
+        resnet18 = models.resnet18(True)
+        modules = list(resnet18.children())[:7]
+
+        self.resnet_features = nn.Sequential(*modules)
+        self.resnet_downsample = nn.Sequential(
+            nn.Conv2d(256, 256, 3, stride=2),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Conv2d(256, 256, 3, stride=2),
+            nn.ReLU(),
+            nn.Dropout(0.3)
+        )
+        # shape will be [-1, 256, 19, 25] after this with module_transfer_depth 7 and input height 300
+
+        # linear layers after flattening
+        self.control_net = nn.Sequential(
+            nn.Linear(5120, 512),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5)
+        )
+
+        # defining the regressor
+        self.control_regressor = nn.Sequential(
+            nn.Linear(256, 256),
+            nn.Dropout(0.5),
+            nn.ReLU(),
+            nn.Linear(256, 4),
+            ControlActivationLayer()
+        )
+
+        # defining the upscaling layers to get out the original image size again
+        self.attention_upscaling = nn.Sequential(
+            nn.Upsample(size=(37, 50)),
+            nn.Conv2d(in_channels=256, out_channels=128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Upsample(size=(75, 100)),
+            nn.Conv2d(in_channels=128, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Upsample(size=(150, 200)),
+            nn.Conv2d(in_channels=64, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Upsample(size=(300, 400)),
+            nn.Conv2d(in_channels=32, out_channels=1, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+        )
+
+    def forward(self, x):
+        image_x = self.resnet_features(x["input_image_0"])
+
+        control_x = self.resnet_downsample(image_x)
+        control_x = control_x.reshape(control_x.size(0), -1)
+        control_x = self.control_net(control_x)
+        control_x = self.control_regressor(control_x)
+
+        image_x = self.attention_upscaling(image_x)
+
+        out = {
+            "output_control": control_x,
+            "output_attention": image_x
+        }
+        return out
+
+
 class StateOnlyRegressor(LoadableModule):
 
     def __init__(self, config=None):
@@ -395,12 +472,12 @@ if __name__ == "__main__":
     tensor = torch.zeros((1, 3, 300, 400)).to(device)
     # tensor = [torch.zeros((1, 3, 300, 400)).to(device), torch.zeros((1, 3, 300, 400)).to(device)]
     sample = {
-        "input_image_0": torch.zeros((1, 3, 150, 200)).to(device),
+        "input_image_0": torch.zeros((1, 3, 300, 400)).to(device),
         "input_state": torch.zeros((1, 9)).to(device)
     }
 
     # net = ResNet18DualBranchRegressor().to(device)
-    net = ResNetStateLargerRegressor().to(device)
+    net = ResNetLargerAttentionAndControl().to(device)
     out = net(sample)
     print(out)
 

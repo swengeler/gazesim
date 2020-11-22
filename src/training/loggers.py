@@ -69,7 +69,17 @@ class Logger:
 
     def training_epoch_end(self, global_step, epoch, model, optimiser):
         # to be called after each full pass over the training set
-        raise NotImplementedError()
+
+        # save model checkpoint
+        if (epoch + 1) % self.config["checkpoint_frequency"] == 0:
+            torch.save({
+                "global_step": global_step,
+                "epoch": epoch,
+                "model_name": self.config["model_name"],
+                "model_state_dict": model.state_dict(),
+                "optimiser_state_dict": optimiser.state_dict()
+            }, os.path.join(self.checkpoint_dirs[self.current_split], "epoch{:03d}.pt".format(epoch)))
+            print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, self.checkpoint_dirs[self.current_split]))
 
     def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # to be called when a single validation step (1 batch) is performed
@@ -125,7 +135,7 @@ class ControlLogger(Logger):
         if "dataset" in kwargs:
             self.control_names = kwargs.get("dataset").output_columns
 
-    def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+    def _control_training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # log total loss
         self.tb_writers[self.current_split].add_scalar("loss/train/total/mse", total_loss.item(), global_step)
 
@@ -139,19 +149,7 @@ class ControlLogger(Logger):
         for n, l_mse in zip(self.control_names, individual_losses_mse):
             self.tb_writers[self.current_split].add_scalar(f"loss/train/{n}/mse", l_mse, global_step)
 
-    def training_epoch_end(self, global_step, epoch, model, optimiser):
-        # save model checkpoint
-        if (epoch + 1) % self.config["checkpoint_frequency"] == 0:
-            torch.save({
-                "global_step": global_step,
-                "epoch": epoch,
-                "model_name": self.config["model_name"],
-                "model_state_dict": model.state_dict(),
-                "optimiser_state_dict": optimiser.state_dict()
-            }, os.path.join(self.checkpoint_dirs[self.current_split], "epoch{:03d}.pt".format(epoch)))
-            print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, self.checkpoint_dirs[self.current_split]))
-
-    def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+    def _control_validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # determine individual losses
         individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_control"],
                                                              batch["output_control"],
@@ -176,9 +174,7 @@ class ControlLogger(Logger):
         self.individual_losses_val_mse += individual_losses_mse
         self.individual_losses_val_l1 += individual_losses_l1
 
-        self.counter_val += 1
-
-    def validation_epoch_end(self, global_step, epoch, model, optimiser):
+    def _control_validation_epoch_end(self, global_step, epoch, model, optimiser):
         # log total loss
         self.tb_writers[self.current_split].add_scalar(
             "loss/val/total/mse", self.total_loss_val_mse.item() / self.counter_val, global_step)
@@ -195,6 +191,16 @@ class ControlLogger(Logger):
         self.total_loss_val_l1 = torch.zeros_like(self.total_loss_val_l1)
         self.individual_losses_val_mse = torch.zeros_like(self.individual_losses_val_mse)
         self.individual_losses_val_l1 = torch.zeros_like(self.individual_losses_val_l1)
+
+    def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        self._control_training_step_end(global_step, total_loss, partial_losses, batch, predictions)
+
+    def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        self._control_validation_step_end(global_step, total_loss, partial_losses, batch, predictions)
+        self.counter_val += 1
+
+    def validation_epoch_end(self, global_step, epoch, model, optimiser):
+        self._control_validation_epoch_end(global_step, epoch, model, optimiser)
         self.counter_val = 0
 
     def final_training_pass_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
@@ -215,7 +221,7 @@ class AttentionLogger(Logger):
 
         self.log_attention_val = True
 
-    def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+    def _attention_training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # log total loss
         # TODO: maybe the loss "type" shouldn't be hard-coded
         self.tb_writers[self.current_split].add_scalar("loss/train/total/kl", total_loss.item(), global_step)
@@ -225,19 +231,7 @@ class AttentionLogger(Logger):
         for ln, l in partial_losses.items():
             self.tb_writers[self.current_split].add_scalar(f"loss/train/{ln}/kl", l.item(), global_step)
 
-    def training_epoch_end(self, global_step, epoch, model, optimiser):
-        # save model checkpoint
-        if (epoch + 1) % self.config["checkpoint_frequency"] == 0:
-            torch.save({
-                "global_step": global_step,
-                "epoch": epoch,
-                "model_name": self.config["model_name"],
-                "model_state_dict": model.state_dict(),
-                "optimiser_state_dict": optimiser.state_dict()
-            }, os.path.join(self.checkpoint_dirs[self.current_split], "epoch{:03d}.pt".format(epoch)))
-            print("Epoch {:03d}: Saving checkpoint to '{}'".format(epoch, self.checkpoint_dirs[self.current_split]))
-
-    def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+    def _attention_validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # accumulate total loss
         if self.total_loss_val_kl is None:
             self.total_loss_val_kl = torch.zeros_like(total_loss)
@@ -248,8 +242,6 @@ class AttentionLogger(Logger):
             if ln not in self.partial_losses_val_kl:
                 self.partial_losses_val_kl[ln] = torch.zeros_like(l)
             self.partial_losses_val_kl[ln] += l
-
-        self.counter_val += 1
 
         if self.log_attention_val:
             # get the original from the batch and the predictions and plot them
@@ -265,9 +257,7 @@ class AttentionLogger(Logger):
 
             self.log_attention_val = False
 
-    def validation_epoch_end(self, global_step, epoch, model, optimiser):
-        # TODO: also record a batch or so of original and predicted attention maps and save them
-
+    def _attention_validation_epoch_end(self, global_step, epoch, model, optimiser):
         # log total loss
         self.tb_writers[self.current_split].add_scalar(
             "loss/val/total/kl", self.total_loss_val_kl.item() / self.counter_val, global_step)
@@ -281,9 +271,42 @@ class AttentionLogger(Logger):
         self.total_loss_val_kl = torch.zeros_like(self.total_loss_val_kl)
         for ln, l in self.partial_losses_val_kl.items():
             self.partial_losses_val_kl[ln] = torch.zeros_like(l)
-        self.counter_val = 0
 
         self.log_attention_val = True
+
+    def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        self._attention_training_step_end(global_step, total_loss, partial_losses, batch, predictions)
+
+    def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        self._attention_validation_step_end(global_step, total_loss, partial_losses, batch, predictions)
+        self.counter_val += 1
+
+    def validation_epoch_end(self, global_step, epoch, model, optimiser):
+        self._attention_validation_epoch_end(global_step, epoch, model, optimiser)
+        self.counter_val = 0
+
+    def final_training_pass_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        raise NotImplementedError
+
+    def final_training_pass_epoch_end(self, global_step, epoch, model, optimiser):
+        raise NotImplementedError
+
+
+class AttentionAndControlLogger(AttentionLogger, ControlLogger):
+
+    def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        self._control_training_step_end(global_step, total_loss, partial_losses, batch, predictions)
+        self._attention_training_step_end(global_step, total_loss, partial_losses, batch, predictions)
+
+    def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        self._control_validation_step_end(global_step, total_loss, partial_losses, batch, predictions)
+        self._attention_validation_step_end(global_step, total_loss, partial_losses, batch, predictions)
+        self.counter_val += 1
+
+    def validation_epoch_end(self, global_step, epoch, model, optimiser):
+        self._control_validation_epoch_end(global_step, epoch, model, optimiser)
+        self._attention_validation_epoch_end(global_step, epoch, model, optimiser)
+        self.counter_val = 0
 
     def final_training_pass_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         raise NotImplementedError
@@ -340,8 +363,8 @@ class CVControlLogger(ControlLogger):
             self.total_loss_val_l1.item() / self.counter_val)
 
         for n, l_mse, l_l1 in zip(self.control_names, self.individual_losses_val_mse, self.individual_losses_val_l1):
-            self.eoe_validation_errors[f"split_{self.current_split}"][n]["mse"].append(l_mse / self.counter_val)
-            self.eoe_validation_errors[f"split_{self.current_split}"][n]["l1"].append(l_l1 / self.counter_val)
+            self.eoe_validation_errors[f"split_{self.current_split}"][n]["mse"].append(l_mse.item() / self.counter_val)
+            self.eoe_validation_errors[f"split_{self.current_split}"][n]["l1"].append(l_l1.item() / self.counter_val)
 
         super().validation_epoch_end(global_step, epoch, model, optimiser)
         self.counter_val += 1  # should actually be updated with update_info, but this doesn't really hurt
@@ -381,8 +404,8 @@ class CVControlLogger(ControlLogger):
             self.total_loss_train_l1.item() / self.counter_train)
 
         for n, l_mse, l_l1 in zip(self.control_names, self.individual_losses_train_mse, self.individual_losses_train_l1):
-            self.eoe_training_errors[f"split_{self.current_split}"][n]["mse"].append(l_mse / self.counter_train)
-            self.eoe_training_errors[f"split_{self.current_split}"][n]["l1"].append(l_l1 / self.counter_train)
+            self.eoe_training_errors[f"split_{self.current_split}"][n]["mse"].append(l_mse.item() / self.counter_train)
+            self.eoe_training_errors[f"split_{self.current_split}"][n]["l1"].append(l_l1.item() / self.counter_train)
 
         # reset the loss accumulators
         self.total_loss_train_mse = torch.zeros_like(self.total_loss_train_mse)

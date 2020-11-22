@@ -13,7 +13,9 @@ DEFAULT_VALUES = {
     "split_config": 0,
     "input_video_names": ["screen"],
     "drone_state_names": ["all"],
-    "ground_truth_name": "moving_window_mean_frame_gt",
+    "attention_ground_truth": "moving_window_frame_mean_gt",
+    "control_ground_truth": "drone_control_frame_mean_gt",
+    # "ground_truth_name": "moving_window_mean_frame_gt",
     "config_file": None,
     "no_normalisation": False,
 
@@ -143,8 +145,10 @@ def parse_config(args):
                 drone_state_names.append(sn)
     config["drone_state_names"] = drone_state_names
 
-    # TODO: will have to check whether/where this is still needed
-    config["ground_truth_name"] = resolve_gt_name(config["dataset_name"])
+    # TODO: might want to have some "resolve" function here as well, but for now leave as defaults
+    # config["attention_ground_truth"] = resolve_gt_name(config["dataset_name"])
+    # config["control_ground_truth"] = resolve_gt_name(config["dataset_name"])
+    # config["ground_truth_name"] = resolve_gt_name(config["dataset_name"])
 
     # dataset-specific stuff
     config["dreyeve_transforms"] = True if "dreyeve" in config["model_name"] else False
