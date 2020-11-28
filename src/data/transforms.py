@@ -5,14 +5,23 @@ import torchvision.transforms.functional as tvf
 from torchvision import transforms
 
 
-class ImageToAttentionMap(object):
+class MultiRandomApply(transforms.RandomApply):
+
+    def forward(self, img):
+        for t in self.transforms:
+            if self.p < torch.rand(1):
+                img = t(img)
+        return img
+
+
+class ImageToAttentionMap:
 
     def __call__(self, sample):
         # for now always expects numpy array (and respective dimension for the colour channels)
         return sample[:, :, 0]
 
 
-class MakeValidDistribution(object):
+class MakeValidDistribution:
 
     def __call__(self, sample):
         # expects torch tensor with
@@ -22,7 +31,7 @@ class MakeValidDistribution(object):
         return sample
 
 
-class ManualRandomCrop(object):
+class ManualRandomCrop:
 
     def __init__(self, input_size, output_size):
         self.input_size = input_size
@@ -31,12 +40,22 @@ class ManualRandomCrop(object):
         self.current_parameters = transforms.RandomCrop.get_params(self.template_image, output_size=self.output_size)
 
     def __call__(self, img):
-        # print("Random crop called with parameters:", self.current_parameters)
         return tvf.crop(img, *self.current_parameters)
 
     def update(self):
         self.current_parameters = transforms.RandomCrop.get_params(self.template_image, output_size=self.output_size)
-        # print("Random crop parameters changed to:", self.current_parameters)
+
+
+class GaussianNoise:
+
+    def __init__(self, sigma=0.1):
+        self.sigma = sigma
+
+    def __call__(self, img):
+        # it is assumed that the image has already been converted to range [0.0, 1.0]
+        img = img + self.sigma * torch.randn_like(img)
+        img = torch.clamp(img, 0.0, 1.0)
+        return img
 
 
 class DrEYEveTransform(object):

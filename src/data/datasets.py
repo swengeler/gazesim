@@ -9,6 +9,7 @@ from torchvision import transforms
 
 from src.data.utils import get_indexed_reader, resolve_split_index_path, run_info_to_path
 from src.data.transforms import MakeValidDistribution, ImageToAttentionMap, ManualRandomCrop
+from src.data.transforms import GaussianNoise, MultiRandomApply
 from src.data.constants import STATISTICS
 
 
@@ -145,6 +146,17 @@ class ImageDataset(GenericDataset):
             transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
         ]) for i in self.video_input_names]
 
+        self.video_input_augmentation = None
+        if config["video_data_augmentation"] and self.split == "train":
+            # TODO: think about whether RandomOrder should also be used
+            self.video_input_augmentation = [MultiRandomApply([
+                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+                GaussianNoise(),
+                # TODO: S&P noise (?): https://stackoverflow.com/a/30609854
+                transforms.GaussianBlur(11),
+                transforms.RandomErasing(1.0)
+            ]) for _ in self.video_input_names]
+
         self.video_input_readers = {}
 
     def _get_image(self, item):
@@ -168,6 +180,8 @@ class ImageDataset(GenericDataset):
         # original and non-original
         image_original = [np.array(i.copy()) for i in image]
         image = [self.video_input_transforms[idx](i) for idx, i in enumerate(image)]
+        if self.video_input_augmentation is not None:
+            image = [self.video_input_augmentation[idx](i) for idx, i in enumerate(image)]
 
         return image, image_original
 
@@ -201,7 +215,8 @@ class ImageToAttentionDataset(ImageDataset, ToAttentionDataset):
         label = self.index["label"].iloc[item]
 
         # original
-        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        out = {"original": {}}
         out["original"]["output_attention"] = attention_original
 
         # transformed
@@ -221,7 +236,8 @@ class ImageToControlDataset(ImageDataset, ToControlDataset):
         label = self.index["label"].iloc[item]
 
         # original
-        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        out = {}
 
         # transformed
         for idx, i in enumerate(image):
@@ -241,7 +257,8 @@ class ImageAndStateToControlDataset(ImageDataset, StateDataset, ToControlDataset
         label = self.index["label"].iloc[item]
 
         # original
-        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        out = {}
 
         # transformed
         for idx, i in enumerate(image):
@@ -262,7 +279,8 @@ class ImageToAttentionAndControlDataset(ImageDataset, ToAttentionDataset, ToCont
         label = self.index["label"].iloc[item]
 
         # original
-        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        out = {"original": {}}
         out["original"]["output_attention"] = attention_original
 
         # transformed

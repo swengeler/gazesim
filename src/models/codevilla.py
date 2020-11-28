@@ -14,56 +14,34 @@ class Codevilla(LoadableModule):
         super().__init__()
 
         # image network, convolutional layers
-        self.image_conv_0 = Codevilla.conv_block(in_channels=3, out_channels=32, kernel_size=5, stride=2, padding=0)
-        self.image_conv_1 = Codevilla.conv_block(in_channels=32, out_channels=32, kernel_size=3, stride=1, padding=0)
-
-        self.image_conv_2 = Codevilla.conv_block(in_channels=32, out_channels=64, kernel_size=3, stride=2, padding=0)
-        self.image_conv_3 = Codevilla.conv_block(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0)
-
-        self.image_conv_4 = Codevilla.conv_block(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=0)
-        self.image_conv_5 = Codevilla.conv_block(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=0)
-
-        self.image_conv_6 = Codevilla.conv_block(in_channels=128, out_channels=256, kernel_size=3, stride=2, padding=0)
-        self.image_conv_7 = Codevilla.conv_block(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=0)
-
-        # image network, fully connected layers
-        self.image_fc_0 = Codevilla.fc_block(7168, 512)
-        self.image_fc_1 = Codevilla.fc_block(512, 512)
-
         self.image_net_conv = nn.Sequential(
-            self.image_conv_0,
-            self.image_conv_1,
-            self.image_conv_2,
-            self.image_conv_3,
-            self.image_conv_4,
-            self.image_conv_5,
-            self.image_conv_6,
-            self.image_conv_7,
+            Codevilla.conv_block(in_channels=3, out_channels=32, kernel_size=5, stride=2, padding=0),
+            Codevilla.conv_block(in_channels=32, out_channels=32, kernel_size=3, stride=1, padding=0),
+            Codevilla.conv_block(in_channels=32, out_channels=64, kernel_size=3, stride=2, padding=0),
+            Codevilla.conv_block(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0),
+            Codevilla.conv_block(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=0),
+            Codevilla.conv_block(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=0),
+            Codevilla.conv_block(in_channels=128, out_channels=256, kernel_size=3, stride=2, padding=0),
+            Codevilla.conv_block(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=0),
         )
 
+        # image network, fully connected layers
         self.image_net_fc = nn.Sequential(
-            self.image_fc_0,
-            self.image_fc_1
+            Codevilla.fc_block(7168, 512),
+            Codevilla.fc_block(512, 512)
         )
 
         # measurement/state network
-        self.state_fc_0 = Codevilla.fc_block(len(config["drone_state_names"]), 128)
-        self.state_fc_1 = Codevilla.fc_block(128, 128)
-
         self.state_net = nn.Sequential(
-            self.state_fc_0,
-            self.state_fc_1
+            Codevilla.fc_block(len(config["drone_state_names"]), 128),
+            Codevilla.fc_block(128, 128)
         )
 
         # control network
-        self.control_fc_0 = Codevilla.fc_block(512 + 128, 256)
-        self.control_fc_1 = Codevilla.fc_block(256, 256)
-        self.control_fc_2 = Codevilla.fc_block(256, 4)
-
         self.control_net = nn.Sequential(
-            self.control_fc_0,
-            self.control_fc_1,
-            self.control_fc_2
+            Codevilla.fc_block(512 + 128, 256),
+            Codevilla.fc_block(256, 256),
+            Codevilla.fc_block(256, 4)
         )
 
         self.final_activation = ControlActivationLayer()
@@ -104,30 +82,6 @@ class CodevillaMultiHead(Codevilla):
     def __init__(self, config):
         super().__init__(config)
 
-        # image network, convolutional layers
-        self.image_net_conv = nn.Sequential(
-            Codevilla.conv_block(in_channels=3, out_channels=32, kernel_size=5, stride=2, padding=0),
-            Codevilla.conv_block(in_channels=32, out_channels=32, kernel_size=3, stride=1, padding=0),
-            Codevilla.conv_block(in_channels=32, out_channels=64, kernel_size=3, stride=2, padding=0),
-            Codevilla.conv_block(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=0),
-            Codevilla.conv_block(in_channels=64, out_channels=128, kernel_size=3, stride=2, padding=0),
-            Codevilla.conv_block(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=0),
-            Codevilla.conv_block(in_channels=128, out_channels=256, kernel_size=3, stride=2, padding=0),
-            Codevilla.conv_block(in_channels=256, out_channels=256, kernel_size=3, stride=1, padding=0),
-        )
-
-        # image network, fully connected layers
-        self.image_net_fc = nn.Sequential(
-            Codevilla.fc_block(7168, 512),
-            Codevilla.fc_block(512, 512)
-        )
-
-        # measurement/state network
-        self.state_net = nn.Sequential(
-            Codevilla.fc_block(len(config["drone_state_names"]), 128),
-            Codevilla.fc_block(128, 128)
-        )
-
         # control network input vector
         self.control_input_vector = Codevilla.fc_block(512 + 128, 512)
 
@@ -142,7 +96,8 @@ class CodevillaMultiHead(Codevilla):
             )
             self.branches.append(branch)
 
-        self.final_activation = ControlActivationLayer()
+        # delete the unused attributes
+        del self.control_net
 
     def forward(self, x):
         image_x = self.image_net_conv(x["input_image_0"])
@@ -153,11 +108,6 @@ class CodevillaMultiHead(Codevilla):
 
         combined_x = torch.cat([image_x, state_x], dim=-1)
         combined_x = self.control_input_vector(combined_x)
-
-        """
-        dummy = torch.autograd.Variable(torch.ones_like(combined_x), requires_grad=True).to(combined_x.device)
-        combined_x = dummy.clone()
-        """
 
         # use different branches depending on label of each sample in batch
         samples = []
@@ -212,12 +162,6 @@ class CodevillaDualBranch(CodevillaMultiHead):
         self.image_net_fc = nn.Sequential(
             Codevilla.fc_block(7168 * 2, 512),
             Codevilla.fc_block(512, 512)
-        )
-
-        # measurement/state network
-        self.state_net = nn.Sequential(
-            Codevilla.fc_block(len(config["drone_state_names"]), 128),
-            Codevilla.fc_block(128, 128)
         )
 
         # control network input vector

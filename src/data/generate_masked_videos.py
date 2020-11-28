@@ -12,6 +12,19 @@ def handle_single_video(config, run_dir, gt_video_path):
     soft_video_path = os.path.join(run_dir, "soft_mask_{}.mp4".format(config["ground_truth_name"]))
     mean_video_path = os.path.join(run_dir, "{}.mp4".format(config["mean_mask_name"]))
 
+    current_output_mode = [om for om in config["output_mode"]]
+
+    if "hard_mask" in current_output_mode and config["skip_existing"] and os.path.isfile(hard_video_path):
+        current_output_mode = [om for om in current_output_mode if om != "hard_mask"]
+    if "soft_mask" in current_output_mode and config["skip_existing"] and os.path.isfile(soft_video_path):
+        current_output_mode = [om for om in current_output_mode if om != "soft_mask"]
+    if "mean_mask" in current_output_mode and config["skip_existing"] and os.path.isfile(mean_video_path):
+        current_output_mode = [om for om in current_output_mode if om != "mean_mask"]
+
+    if len(current_output_mode) == 0:
+        print("Skipping '{}' since there is nothing to write.".format(run_dir))
+        return
+
     # load the mean mask
     mean_mask = None
     if config["mean_mask_path"] is not None:
@@ -26,11 +39,11 @@ def handle_single_video(config, run_dir, gt_video_path):
 
     w, h, fps, fourcc, num_frames = (rgb_cap.get(i) for i in range(3, 8))
     hard_video_writer, soft_video_writer, mean_video_writer = None, None, None
-    if "hard_mask" in config["output_mode"]:
+    if "hard_mask" in current_output_mode:
         hard_video_writer = cv2.VideoWriter(hard_video_path, int(fourcc), fps, (int(w), int(h)), True)
-    if "soft_mask" in config["output_mode"]:
+    if "soft_mask" in current_output_mode:
         soft_video_writer = cv2.VideoWriter(soft_video_path, int(fourcc), fps, (int(w), int(h)), True)
-    if "mean_mask" in config["output_mode"]:
+    if "mean_mask" in current_output_mode:
         mean_video_writer = cv2.VideoWriter(mean_video_path, int(fourcc), fps, (int(w), int(h)), True)
 
     if num_frames != gt_cap.get(7):
@@ -49,30 +62,30 @@ def handle_single_video(config, run_dir, gt_video_path):
         if gt_frame.max() > 0.0:
             gt_frame /= gt_frame.max()
 
-        if "hard_mask" in config["output_mode"]:
+        if "hard_mask" in current_output_mode:
             hard_masked = rgb_frame * gt_frame[:, :, np.newaxis]
             hard_masked = np.round(hard_masked).astype("uint8")
             hard_video_writer.write(hard_masked)
 
-        if "soft_mask" in config["output_mode"]:
+        if "soft_mask" in current_output_mode:
             soft_masked = sml * rgb_frame + (1 - sml) * rgb_frame * gt_frame[:, :, np.newaxis]
             soft_masked = np.round(soft_masked).astype("uint8")
             soft_video_writer.write(soft_masked)
 
-        if "mean_mask" in config["output_mode"]:
+        if "mean_mask" in current_output_mode:
             mean_masked = rgb_frame * mean_mask[:, :, np.newaxis]
             mean_masked = np.round(mean_masked).astype("uint8")
             mean_video_writer.write(mean_masked)
 
-    if "hard_mask" in config["output_mode"]:
+    if "hard_mask" in current_output_mode:
         hard_video_writer.release()
-    if "soft_mask" in config["output_mode"]:
+    if "soft_mask" in current_output_mode:
         soft_video_writer.release()
-    if "mean_mask" in config["output_mode"]:
+    if "mean_mask" in current_output_mode:
         mean_video_writer.release()
 
     print("Finished writing {} for '{}' to '{}'.".format(
-        " and ".join(config["output_mode"]), config["ground_truth_name"], run_dir))
+        " and ".join(current_output_mode), config["ground_truth_name"], run_dir))
 
 
 def main(config):
@@ -117,6 +130,7 @@ if __name__ == "__main__":
                         help="Lambda for soft masking.")
     parser.add_argument("-mmp", "--mean_mask_path", type=str, default=None,
                         help="File path to the mean mask to use for masking.")
+    parser.add_argument("-se", "--skip_existing", action="store_true")
 
     # parse the arguments
     arguments = parser.parse_args()

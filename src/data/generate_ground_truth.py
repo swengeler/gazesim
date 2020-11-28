@@ -15,6 +15,11 @@ class GroundTruthGenerator:
         self.run_dir_list = iterate_directories(config["data_root"], track_names=config["track_name"])
         if config["directory_index"] is not None:
             self.run_dir_list = self.run_dir_list[int(config["directory_index"][0]):config["directory_index"][1]]
+        """
+        for r_idx, r in enumerate(self.run_dir_list):
+            print(r_idx, ":", r)
+        exit()
+        """
 
     def get_gt_info(self, run_dir, subject, run):
         raise NotImplementedError()
@@ -23,7 +28,7 @@ class GroundTruthGenerator:
         raise NotImplementedError()
 
     def generate(self):
-        for rd in self.run_dir_list:
+        for rd in tqdm(self.run_dir_list, disable=True):
             self.compute_gt(rd)
 
 
@@ -38,12 +43,13 @@ class MovingWindowFrameMeanGT(GroundTruthGenerator):
         assert config["mw_size"] > 0 and config["mw_size"] % 2 == 1
 
         self._half_window_size = int((config["mw_size"] - 1) / 2)
+        self._skip_existing = config["skip_existing"]
 
     def get_gt_info(self, run_dir, subject, run):
         # get the path to the index directory
         index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
         frame_index_path = os.path.join(index_dir, "frame_index.csv")
-        gaze_gt_path = os.path.join(index_dir, "gaze_gt.csv")
+        gaze_gt_path = os.path.join(index_dir, "test_gaze_gt.csv")
 
         df_frame_index = pd.read_csv(frame_index_path)
 
@@ -87,15 +93,6 @@ class MovingWindowFrameMeanGT(GroundTruthGenerator):
             print("WARNING: Number of frames in video and registered in main index is different for directory '{}'.".format(run_dir))
             return
 
-        # writer is only initialised after making sure that everything else works
-        video_writer = cv2.VideoWriter(
-            os.path.join(run_dir, f"{self.__class__.NAME}.mp4"),
-            int(fourcc),
-            fps,
-            (int(w), int(h)),
-            True
-        )
-
         # load data frames with the timestamps and positions for gaze and the frames/timestamps for the video
         df_gaze = pd.read_csv(os.path.join(run_dir, "gaze_on_surface.csv"))
         df_screen = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
@@ -118,6 +115,22 @@ class MovingWindowFrameMeanGT(GroundTruthGenerator):
 
         # create new dataframe to write frame-level information into
         df_gaze_gt.loc[match_index, self.__class__.NAME] = df_screen["frame"].isin(df_gaze["frame"]).astype(int).values
+
+        # save gaze gt index to CSV with updated data
+        df_gaze_gt.to_csv(gaze_gt_path, index=False)
+
+        if self._skip_existing and os.path.exists(os.path.join(run_dir, f"{self.__class__.NAME}.mp4")):
+            print("INFO: Video already exists for '{}'.".format(run_dir))
+            return
+
+        # writer is only initialised after making sure that everything else works
+        video_writer = cv2.VideoWriter(
+            os.path.join(run_dir, f"{self.__class__.NAME}.mp4"),
+            int(fourcc),
+            fps,
+            (int(w), int(h)),
+            True
+        )
 
         # loop through all frames and compute the ground truth (where possible)
         for frame_idx in tqdm(df_screen["frame"], disable=False):
@@ -145,10 +158,147 @@ class MovingWindowFrameMeanGT(GroundTruthGenerator):
 
         video_writer.release()
 
+        print("Saved moving window ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
+
+
+class RandomGazeGT(GroundTruthGenerator):
+
+    NAME = "random_gaze_gt"
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        # make sure the input is correct
+        assert config["mw_size"] > 0 and config["mw_size"] % 2 == 1
+
+        self._half_window_size = int((config["mw_size"] - 1) / 2)
+        self._skip_existing = config["skip_existing"]
+
+        np.random.seed(config["random_seed"])
+
+    def get_gt_info(self, run_dir, subject, run):
+        # get the path to the index directory
+        index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
+        frame_index_path = os.path.join(index_dir, "frame_index.csv")
+        gaze_gt_path = os.path.join(index_dir, "test_gaze_gt.csv")
+
+        df_frame_index = pd.read_csv(frame_index_path)
+
+        if os.path.exists(gaze_gt_path):
+            df_gaze_gt = pd.read_csv(gaze_gt_path)
+        else:
+            df_gaze_gt = df_frame_index.copy()
+            df_gaze_gt = df_gaze_gt[["frame", "subject", "run"]]
+
+        if self.__class__.NAME not in df_gaze_gt.columns:
+            df_gaze_gt[self.__class__.NAME] = -1
+
+        # in principle, need only subject and run to identify where to put the new info...
+        # e.g. track name is more of a property to filter on...
+        match_index = (df_gaze_gt["subject"] == subject) & (df_gaze_gt["run"] == run)
+
+        return df_gaze_gt, gaze_gt_path, match_index
+
+    def compute_gt(self, run_dir):
+        start = time()
+
+        # get info about the current run
+        run_info = parse_run_info(run_dir)
+        subject = run_info["subject"]
+        run = run_info["run"]
+
+        # get the ground-truth info
+        df_gaze_gt, gaze_gt_path, match_index = self.get_gt_info(run_dir, subject, run)
+
+        # initiate video capture and writer
+        video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
+        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
+
+        if not (w == 800 and h == 600):
+            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+            return
+
+        if not int(num_frames) == match_index.sum():
+            print("WARNING: Number of frames in video and registered in main index "
+                  "is different for directory '{}'.".format(run_dir))
+            return
+
+        # moved this here to be able to exit as early as possible if video already exists
+        # this "ground-truth" type is available for all frames
+        df_gaze_gt.loc[match_index, self.__class__.NAME] = 1
+
         # save gaze gt index to CSV with updated data
         df_gaze_gt.to_csv(gaze_gt_path, index=False)
 
-        print("Saved moving window ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
+        if self._skip_existing and os.path.exists(os.path.join(run_dir, f"{self.__class__.NAME}.mp4")):
+            print("INFO: Video already exists for '{}'.".format(run_dir))
+            return
+
+        # load data frames with the timestamps and positions for gaze and the frames/timestamps for the video
+        df_screen = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
+        df_screen["x"] = w / 2
+        df_screen["y"] = h / 2
+
+        # initial position
+        next_pos = np.random.multivariate_normal(np.array([h / 2, w / 2]), np.array([[h, 0.0], [0.0, w]]))
+        while not (0.0 <= next_pos[0] < h and 0.0 <= next_pos[1] < w):
+            next_pos = np.random.multivariate_normal(np.array([h / 2, w / 2]), np.array([[h, 0.0], [0.0, w]]))
+        df_screen.loc[df_screen.index[0], "x"] = next_pos[1]
+        df_screen.loc[df_screen.index[0], "y"] = next_pos[0]
+        prev_pos = next_pos
+
+        # iteratively adding positions for every frame
+        for i in tqdm(range(1, len(df_screen.index)), disable=False):
+            next_pos = np.random.multivariate_normal(prev_pos, np.array([[h / 8, 0.0], [0.0, w / 8]]))
+            while not (0.0 <= next_pos[0] < h and 0.0 <= next_pos[1] < w):
+                next_pos = np.random.multivariate_normal(prev_pos, np.array([[h / 8, 0.0], [0.0, w / 8]]))
+
+            df_screen.loc[df_screen.index[i], "x"] = next_pos[1]
+            df_screen.loc[df_screen.index[i], "y"] = next_pos[0]
+
+            prev_pos = next_pos
+
+        df_screen["x"] = df_screen["x"].astype(int)
+        df_screen["y"] = df_screen["y"].astype(int)
+
+        # writer is only initialised after making sure that everything else works
+        video_writer = cv2.VideoWriter(
+            os.path.join(run_dir, f"{self.__class__.NAME}.mp4"),
+            int(fourcc),
+            fps,
+            (int(w), int(h)),
+            True
+        )
+
+        # loop through all frames and "create" the ground truth
+        for frame_idx in tqdm(df_screen["frame"], disable=False):
+            if frame_idx >= num_frames:
+                print("Number of frames in CSV file exceeds number of frames in video!")
+                break
+
+            # compute the range of frames to use for the ground truth
+            frame_low = frame_idx - self._half_window_size
+            frame_high = frame_idx + self._half_window_size
+
+            # create the heatmap
+            current_frame_data = df_screen[df_screen["frame"].between(frame_low, frame_high)]
+            current_mu = current_frame_data[["x", "y"]].values
+            heatmap = generate_gaussian_heatmap(mu=current_mu, down_scale_factor=10)
+
+            if heatmap.max() > 0.0:
+                heatmap /= heatmap.max()
+
+            heatmap = (heatmap * 255).astype("uint8")
+            heatmap = np.repeat(heatmap[:, :, np.newaxis], 3, axis=2)
+
+            # save the resulting frame
+            video_writer.write(heatmap)
+
+        video_writer.release()
+
+        print("Saved random gaze ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
 class OpticalFlowFarneback(GroundTruthGenerator):
@@ -410,6 +560,8 @@ def resolve_gt_class(ground_truth_type: str) -> Type[GroundTruthGenerator]:
         return MovingWindowFrameMeanGT
     elif ground_truth_type == "drone_control_frame_mean_gt":
         return DroneControlFrameMeanGT
+    elif ground_truth_type == "random_gaze_gt":
+        return RandomGazeGT
     elif ground_truth_type == "drone_state_frame_mean":
         return DroneStateFrameMean
     elif ground_truth_type == "optical_flow":
@@ -427,27 +579,30 @@ def main(args):
 if __name__ == "__main__":
     import argparse
 
-    PARSER = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser()
 
     # general arguments
-    PARSER.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
+    parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
-    PARSER.add_argument("-tn", "--track_name", type=str, nargs="+", default=["flat", "wave"], choices=["flat", "wave"],
+    parser.add_argument("-tn", "--track_name", type=str, nargs="+", default=["flat", "wave"], choices=["flat", "wave"],
                         help="The method to use to compute the ground-truth.")
-    PARSER.add_argument("-gtt", "--ground_truth_type", type=str, default="moving_window_frame_mean_gt",
-                        choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt",
+    parser.add_argument("-gtt", "--ground_truth_type", type=str, default="moving_window_frame_mean_gt",
+                        choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt", "random_gaze_gt",
                                  "drone_state_frame_mean", "optical_flow"],
                         help="The method to use to compute the ground-truth.")
-    PARSER.add_argument("-di", "--directory_index", type=pair, default=None)
+    parser.add_argument("-di", "--directory_index", type=pair, default=None)
+    parser.add_argument("-rs", "--random_seed", type=int, default=127,
+                        help="The random seed.")
+    parser.add_argument("-se", "--skip_existing", action="store_true")
 
     # arguments only used for moving_window
-    PARSER.add_argument("--mw_size", type=int, default=25,
+    parser.add_argument("--mw_size", type=int, default=25,
                         help="Size of the temporal window in frames from which the "
                              "ground-truth for the current frame should be computed.")
 
     # parse the arguments
-    ARGS = PARSER.parse_args()
+    arguments = parser.parse_args()
 
     # generate the GT
-    main(ARGS)
+    main(arguments)
 

@@ -18,6 +18,7 @@ DEFAULT_VALUES = {
     # "ground_truth_name": "moving_window_mean_frame_gt",
     "config_file": None,
     "no_normalisation": False,
+    "video_data_augmentation": False,
 
     "model_name": "codevilla_multi_head",
     "model_load_path": None,

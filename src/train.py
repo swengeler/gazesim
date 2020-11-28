@@ -1,4 +1,3 @@
-import os
 import numpy as np
 
 import torch
@@ -315,6 +314,8 @@ if __name__ == "__main__":
                         help="Config file to load parameters from.")
     parser.add_argument("-nn", "--no_normalisation", action="store_true",
                         help="Whether or not to normalise the (image) input data.")
+    parser.add_argument("-vda", "--video_data_augmentation", action="store_true",
+                        help="Whether or not to apply data augmentation for the image/video input data.")
 
     # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str,
