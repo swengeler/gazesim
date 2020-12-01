@@ -43,7 +43,7 @@ class C3DRegressor(LoadableModule):
 
     def forward(self, x):
 
-        h = self.relu(self.conv1(x))
+        h = self.relu(self.conv1(x["input_image_0"]["stack"]))
         h = self.pool1(h)
 
         h = self.relu(self.conv2(h))
@@ -72,7 +72,8 @@ class C3DRegressor(LoadableModule):
         logits = self.fc8(h)
         probabilities = self.final_activation(logits)
 
-        return probabilities
+        out = {"output_control": probabilities}
+        return out
 
 
 class C3DStateRegressor(C3DRegressor):

@@ -13,21 +13,10 @@ from src.data.transforms import GaussianNoise, MultiRandomApply
 from src.data.constants import STATISTICS
 
 
-# TODO: how do data augmentation?
-def compose_augmentation_transform():
-    transform = transforms.RandomApply([
-        transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
-        transforms.RandomErasing()
-    ])
-    # GaussianBlur apparently not in this version of pytorch
-    # Gaussian noise with this? https://github.com/pytorch/vision/issues/712#issuecomment-493021839
-    # no salt-and-pepper or other noise => might want custom class
-    # https://gist.github.com/oeway/2e3b989e0343f0884388ed7ed82eb3b0 might be a good reference for some stuff
-
-
 class GenericDataset(Dataset):
 
     def __init__(self, config, split, cv_split=-1):
+
         self.data_root = config["data_root"]
         # TODO: this needs to change if we want multiple possible outputs... should this be a list? or should
         #  there be specific inputs for control_gt, attention_gt etc. => I think this would be better actually
@@ -41,6 +30,7 @@ class GenericDataset(Dataset):
         self.index["split"] = split_index
         self.sub_index = self.index["split"] == self.split  # TODO: maybe do this with .loc[self.index.index]?
         self.index = self.index[self.sub_index]
+        self.index.reset_index(drop=False, inplace=True)
 
         # include the high-level labels as well
         self.index["label"] = 4
@@ -50,6 +40,9 @@ class GenericDataset(Dataset):
 
     def __len__(self):
         return len(self.index.index)
+
+    def __getitem__(self, item):
+        return self.index.iloc[item]
 
 
 class ToControlDataset(GenericDataset):
@@ -82,7 +75,7 @@ class ToAttentionDataset(GenericDataset):
 
         self.attention_output_name = config["attention_ground_truth"]
 
-        self.output_transform = transforms.Compose([
+        self.attention_output_transform = transforms.Compose([
             ImageToAttentionMap(),
             transforms.ToPILImage(),
             transforms.Resize(config["resize"]),
@@ -110,7 +103,7 @@ class ToAttentionDataset(GenericDataset):
 
         # original and transformed
         attention_original = np.array(attention.copy())
-        attention = self.output_transform(attention)
+        attention = self.attention_output_transform(attention)
 
         return attention, attention_original
 
@@ -149,13 +142,14 @@ class ImageDataset(GenericDataset):
         self.video_input_augmentation = None
         if config["video_data_augmentation"] and self.split == "train":
             # TODO: think about whether RandomOrder should also be used
+            jitter = config["vda_jitter_range"]
             self.video_input_augmentation = [MultiRandomApply([
-                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
-                GaussianNoise(),
+                transforms.ColorJitter(brightness=jitter, contrast=jitter, saturation=jitter, hue=jitter),
+                GaussianNoise(config["vda_gaussian_noise_sigma"]),
                 # TODO: S&P noise (?): https://stackoverflow.com/a/30609854
-                transforms.GaussianBlur(11),
+                transforms.GaussianBlur(11),  # TODO: should this come before the other transforms?
                 transforms.RandomErasing(1.0)
-            ]) for _ in self.video_input_names]
+            ], p=config["vda_probability"]) for _ in self.video_input_names]
 
         self.video_input_readers = {}
 
@@ -186,6 +180,76 @@ class ImageDataset(GenericDataset):
         return image, image_original
 
 
+class StackedImageDataset(ImageDataset):
+
+    def __init__(self, config, split, cv_split=-1):
+        super().__init__(config, split, cv_split)
+
+        self.stack_size = config["stack_size"]
+
+        # adjusting the index for stacking
+        # 1. find contiguous sequences of frames
+        sequences = []
+        frames = self.index["frame"]
+        jumps = (frames - frames.shift()) != 1
+        frames = list(frames.index[jumps]) + [frames.index[-1] + 1]
+        for i, start_index in enumerate(frames[:-1]):
+            # note that the range [start_frame, end_frame) is exclusive
+            sequences.append((start_index, frames[i + 1]))
+
+        # 2. use second "index" that skips the (stack_size - 1) first frames of each contiguous sequence
+        self.index["stack_index"] = -1
+        df_col_index = self.index.columns.get_loc("stack_index")
+        total_num_frame_stacks = 0
+        for start_index, end_index in sequences:
+            num_frames_seq = end_index - start_index
+            num_frame_stacks = num_frames_seq - self.stack_size + 1
+            if end_index - start_index < self.stack_size:
+                continue
+
+            # assign index over entire dataframe to "valid" frames
+            index = np.arange(num_frame_stacks) + total_num_frame_stacks
+            self.index.iloc[(start_index + self.stack_size - 1):end_index, df_col_index] = index
+
+            # keep track of the current number of stacks (highest index)
+            total_num_frame_stacks += num_frame_stacks
+
+    def __len__(self):
+        return self.index["stack_index"].max() + 1
+
+    def _get_image_stack(self, item):
+        current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
+        current_stack_df = self.index.iloc[(current_stack_index - self.stack_size + 1):(current_stack_index + 1)]
+        current_frame_index = current_stack_df["frame"].iloc[-1]
+        current_run_dir = os.path.join(self.data_root, run_info_to_path(current_stack_df["subject"].iloc[0],
+                                                                        current_stack_df["run"].iloc[0],
+                                                                        current_stack_df["track_name"].iloc[0]))
+
+        # initialise the video readers if necessary
+        if current_run_dir not in self.video_input_readers:
+            self.video_input_readers[current_run_dir] = {
+                f"input_image_{idx}": get_indexed_reader(os.path.join(current_run_dir, f"{i}.mp4"))
+                for idx, i in enumerate(self.video_input_names)
+            }
+
+        image_stack = [[] for _ in range(len(self.video_input_names))]
+        for idx in range(len(self.video_input_names)):
+            for in_stack_idx, (_, row) in enumerate(current_stack_df.iterrows()):
+                image = self.video_input_readers[current_run_dir][f"input_image_{idx}"][row["frame"]]
+                image = self.video_input_transforms[idx](image)
+                if self.video_input_augmentation is not None:
+                    # TODO: think about whether these should only be applied after the images have been stacked
+                    #  (according to the PyTorch documentation that should mean that the same transform is applied
+                    #  to all images in the "batch", which might be desirable if this doesn't seem to work, might
+                    #  e.g. make more sense conceptually with random masking)
+                    image = self.video_input_augmentation[idx](image)
+                image_stack[idx].append(image)
+            image_stack[idx] = torch.stack(image_stack[idx], 1)
+
+        # TODO: think about whether we want original, but probably not, just because of the size
+        return image_stack
+
+
 class StateDataset(GenericDataset):
 
     def __init__(self, config, split, cv_split=-1):
@@ -205,6 +269,23 @@ class StateDataset(GenericDataset):
         state = torch.from_numpy(state).float()
 
         return state
+
+
+class StateToControlDataset(StateDataset, ToControlDataset):
+
+    def __getitem__(self, item):
+        state = self._get_state(item)
+        control = self._get_control(item)
+        label = self.index["label"].iloc[item]
+
+        # no need to store any original stuff
+        out = {
+            "input_state": state,
+            "output_control": control,
+            "label_high_level": label
+        }
+
+        return out
 
 
 class ImageToAttentionDataset(ImageDataset, ToAttentionDataset):
@@ -311,6 +392,48 @@ class ImageAndStateToAttentionAndControlDataset(ImageDataset, StateDataset, ToAt
             out[f"input_image_{idx}"] = i
         out["input_state"] = state
         out["output_attention"] = attention
+        out["output_control"] = control
+        out["label_high_level"] = label
+
+        return out
+
+
+class StackedImageToControlDataset(StackedImageDataset, ToControlDataset):
+
+    def __getitem__(self, item):
+        image_stack = self._get_image_stack(item)
+        control = self._get_control(item)
+        label = self.index["label"].iloc[item]
+
+        # original
+        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        out = {}
+
+        # transformed
+        for idx, i in enumerate(image_stack):
+            out[f"input_image_{idx}"] = {"stack": i}
+        out["output_control"] = control
+        out["label_high_level"] = label
+
+        return out
+
+
+class StackedImageAndStateToControlDataset(StackedImageDataset, StateDataset, ToControlDataset):
+
+    def __getitem__(self, item):
+        image_stack = self._get_image_stack(item)
+        state = self._get_state(item)
+        control = self._get_control(item)
+        label = self.index["label"].iloc[item]
+
+        # original
+        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        out = {}
+
+        # transformed
+        for idx, i in enumerate(image_stack):
+            out[f"input_image_{idx}"] = {"stack": i}
+        out["input_state"] = state
         out["output_control"] = control
         out["label_high_level"] = label
 
@@ -559,6 +682,12 @@ class StackedImageToAttentionDataset(Dataset):
         return out
 
 
+class DrEYEveDataset(StackedImageDataset, ToAttentionDataset):
+    # TODO: since the way of dealing with the transforms is pretty annoying, this might be for the best
+    pass
+
+
+"""
 class StackedImageAndStateToControlDataset(Dataset):
 
     def __init__(self, config, split, cv_split=-1):
@@ -746,23 +875,7 @@ class StackedImageAndStateToControlDataset(Dataset):
 
         # return a dictionary
         return out
-
-
-class StateToControlDataset(StateDataset, ToControlDataset):
-
-    def __getitem__(self, item):
-        state = self._get_state(item)
-        control = self._get_control(item)
-        label = self.index["label"].iloc[item]
-
-        # no need to store any original stuff
-        out = {
-            "input_state": state,
-            "output_control": control,
-            "label_high_level": label
-        }
-
-        return out
+"""
 
 
 if __name__ == "__main__":
@@ -773,19 +886,21 @@ if __name__ == "__main__":
         "attention_ground_truth": "moving_window_frame_mean_gt",
         "control_ground_truth": "drone_control_frame_mean_gt",
         "resize": 150,
+        "stack_size": 4,
         "split_config": resolve_split_index_path(11, data_root=os.getenv("GAZESIM_ROOT")),
-        "no_normalisation": True
+        "no_normalisation": True,
+        "video_data_augmentation": True
     }
 
-    dataset = ImageAndStateToAttentionAndControlDataset(test_config, "val")
+    dataset = StackedImageAndStateToControlDataset(test_config, "val")
     print(len(dataset))
 
     sample = dataset[0]
     print("sample:", sample.keys())
-    print(sample["input_image_0"].shape)
-    print(sample["input_state"].shape)
-    print(sample["output_attention"].shape)
-    print(sample["output_control"].shape)
+    # print(sample["input_image_0"].shape)
+    # print(sample["input_state"].shape)
+    # print(sample["output_attention"].shape)
+    # print(sample["output_control"].shape)
 
     exit(0)
 

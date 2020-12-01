@@ -9,7 +9,7 @@ class MultiRandomApply(transforms.RandomApply):
 
     def forward(self, img):
         for t in self.transforms:
-            if self.p < torch.rand(1):
+            if torch.rand(1) < self.p:
                 img = t(img)
         return img
 

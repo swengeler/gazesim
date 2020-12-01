@@ -4,7 +4,7 @@ import torch
 from src.training.loggers import ControlLogger, TestLogger, AttentionLogger, AttentionAndControlLogger, CVControlLogger
 from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset, StateToControlDataset
 from src.data.datasets import ImageToAttentionAndControlDataset
-from src.data.datasets import StackedImageToAttentionDataset, StackedImageAndStateToControlDataset
+from src.data.datasets import StackedImageToAttentionDataset, StackedImageAndStateToControlDataset, StackedImageToControlDataset
 from src.models.c3d import C3DRegressor, C3DStateRegressor
 from src.models.codevilla import Codevilla, Codevilla300, CodevillaSkip, CodevillaMultiHead, CodevillaDualBranch, CodevillaMultiHeadNoState
 from src.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetStateLargerRegressor, StateOnlyRegressor, ResNetLargerRegressor, ResNetLargerAttentionAndControl
@@ -134,7 +134,7 @@ def resolve_dataset_name(model_name):
 
 def resolve_dataset_class(dataset_name):
     return {
-        "StackedImageToControlDataset": ImageToControlDataset,  # TODO: change this
+        "StackedImageToControlDataset": StackedImageToControlDataset,
         "StackedImageAndStateToControlDataset": StackedImageAndStateToControlDataset,
         "ImageToControlDataset": ImageToControlDataset,
         "ImageAndStateToControlDataset": ImageAndStateToControlDataset,

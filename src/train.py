@@ -314,8 +314,16 @@ if __name__ == "__main__":
                         help="Config file to load parameters from.")
     parser.add_argument("-nn", "--no_normalisation", action="store_true",
                         help="Whether or not to normalise the (image) input data.")
+
+    # arguments related to (video) data augmentation
     parser.add_argument("-vda", "--video_data_augmentation", action="store_true",
                         help="Whether or not to apply data augmentation for the image/video input data.")
+    parser.add_argument("--vda_probability", type=float,
+                        help="Probability of applying individual data augmentation transforms.")
+    parser.add_argument("--vda_jitter_range", type=float,
+                        help="Color jitter range for data augmentation.")
+    parser.add_argument("--vda_gaussian_noise_sigma", type=float,
+                        help="Standard deviation for Gaussian noise applied for data augmentation.")
 
     # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str,
