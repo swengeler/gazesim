@@ -3,8 +3,8 @@ import torch
 
 from src.training.loggers import ControlLogger, TestLogger, AttentionLogger, AttentionAndControlLogger, CVControlLogger
 from src.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset, StateToControlDataset
-from src.data.datasets import ImageToAttentionAndControlDataset
-from src.data.datasets import StackedImageToAttentionDataset, StackedImageAndStateToControlDataset, StackedImageToControlDataset
+from src.data.datasets import ImageToAttentionAndControlDataset, StackedImageAndStateToControlDataset
+from src.data.datasets import StackedImageToAttentionDataset, StackedImageToControlDataset, DrEYEveDataset
 from src.models.c3d import C3DRegressor, C3DStateRegressor
 from src.models.codevilla import Codevilla, Codevilla300, CodevillaSkip, CodevillaMultiHead, CodevillaDualBranch, CodevillaMultiHeadNoState
 from src.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetStateLargerRegressor, StateOnlyRegressor, ResNetLargerRegressor, ResNetLargerAttentionAndControl
@@ -68,8 +68,8 @@ def get_outputs(dataset_name):
         "ImageToControlDataset": ["output_control"],
         "ImageAndStateToControlDataset": ["output_control"],
         "StateToControlDataset": ["output_control"],
-        "StackedImageToAttentionDataset": ["output_attention", "output_attention_crop"],
         "ImageToAttentionAndControlDataset": ["output_attention", "output_control"],
+        "DrEYEveDataset": ["output_attention", "output_attention_crop"],
         # TODO: this might actually depend on more than just this  (e.g. if some dreyeve architecture is used)
     }[dataset_name]
 
@@ -83,8 +83,8 @@ def get_valid_losses(dataset_name):
         "ImageToControlDataset": {"output_control": ["mse"]},
         "ImageAndStateToControlDataset": {"output_control": ["mse"]},
         "StateToControlDataset": {"output_control": ["mse"]},
-        "StackedImageToAttentionDataset": {"output_attention": ["kl", "mse"], "output_attention_crop": ["kl", "mse"]},
-        "ImageToAttentionAndControlDataset": {"output_attention": ["kl"], "output_control": ["mse"]}
+        "ImageToAttentionAndControlDataset": {"output_attention": ["kl"], "output_control": ["mse"]},
+        "DrEYEveDataset": {"output_attention": ["kl", "mse"], "output_attention_crop": ["kl", "mse"]},
     }[dataset_name]
 
 
@@ -128,7 +128,7 @@ def resolve_dataset_name(model_name):
         "resnet_state_larger": "ImageAndStateToControlDataset",
         "resnet_larger_att_ctrl": "ImageToAttentionAndControlDataset",
         "state_only": "StateToControlDataset",
-        "dreyeve_branch": "StackedImageToAttentionDataset"
+        "dreyeve_branch": "DrEYEveDataset"
     }[model_name]
 
 
@@ -140,7 +140,8 @@ def resolve_dataset_class(dataset_name):
         "ImageAndStateToControlDataset": ImageAndStateToControlDataset,
         "StateToControlDataset": StateToControlDataset,
         "StackedImageToAttentionDataset": StackedImageToAttentionDataset,
-        "ImageToAttentionAndControlDataset": ImageToAttentionAndControlDataset
+        "ImageToAttentionAndControlDataset": ImageToAttentionAndControlDataset,
+        "DrEYEveDataset": DrEYEveDataset
     }[dataset_name]
 
 
@@ -155,6 +156,8 @@ def resolve_logger_class(dataset_name, mode):
         elif mode == "cv":
             return CVControlLogger
     else:
+        # TODO: consider also logging cropped attention if available
+        #  => probably not worth making a new logger for but could check if the data is there
         if mode == "train":
             return AttentionLogger
 
@@ -176,7 +179,7 @@ def resolve_resize_parameters(model_name):
         "resnet_state_larger": 150,
         "resnet_larger_att_ctrl": 300,
         "state_only": None,
-        "dreyeve_branch": None
+        "dreyeve_branch": (112, 112)  # kind of a dummy value
     }[model_name]
 
 
@@ -189,5 +192,6 @@ def resolve_gt_name(dataset_name):
         "ImageAndStateToControlDataset": "drone_control_frame_mean_gt",
         "StateToControlDataset": "drone_control_frame_mean_gt",
         "StackedImageToAttentionDataset": "moving_window_frame_mean_gt",
-        "ImageToAttentionAndControlDataset": ["moving_window_frame_mean_gt", "drone_control_frame_mean_gt"]
+        "ImageToAttentionAndControlDataset": ["moving_window_frame_mean_gt", "drone_control_frame_mean_gt"],
+        "DrEYEveDataset": "moving_window_frame_mean_gt"
     }[dataset_name]

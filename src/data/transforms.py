@@ -63,7 +63,6 @@ class DrEYEveTransform(object):
     def __init__(
             self,
             input_names,
-            input_statistics=None,
             full_size=(448, 448),
             small_size=(112, 112),
             pre_crop_size=(256, 256)
@@ -73,28 +72,25 @@ class DrEYEveTransform(object):
         self.small_size = small_size
         self.pre_crop_size = pre_crop_size
 
-        if input_statistics is None:
-            input_statistics = {i: {"mean": np.array([0.0, 0.0, 0.0]), "std": np.array([1.0, 1.0, 1.0])}
-                                for i in input_names}
+        self.random_crop = ManualRandomCrop(pre_crop_size, small_size)
 
-        self.stack_transforms = [transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize(self.small_size),
-            transforms.ToTensor(),
-            transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
-        ]) for i in input_names]
-        self.stack_crop_transforms = [transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize(self.pre_crop_size),
-            transforms.ToTensor(),
-            transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
-        ]) for i in input_names]
-        self.last_frame_transforms = [transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize(self.full_size),
-            transforms.ToTensor(),
-            transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
-        ]) for i in input_names]
+        self.input_transforms = {
+            "stack": [transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize(self.small_size),
+                transforms.ToTensor(),
+            ]) for _ in input_names],
+            "stack_crop": [transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize(self.full_size),
+                transforms.ToTensor(),
+            ]) for _ in input_names],
+            "last_frame": [transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize(self.full_size),
+                transforms.ToTensor(),
+            ]) for _ in input_names]
+        }
         self.output_transforms = {
             "stack": transforms.Compose([
                 ImageToAttentionMap(),
@@ -107,10 +103,44 @@ class DrEYEveTransform(object):
                 ImageToAttentionMap(),
                 transforms.ToPILImage(),
                 transforms.Resize(self.small_size),
+                self.random_crop,
                 transforms.ToTensor(),
                 MakeValidDistribution()  # not sure if this will work with the cropping stuff
             ])
         }
+
+    def _update(self):
+        self.random_crop.update()
+
+    def _apply_input_transforms(self, sample):
+        # sample should already be a dictionary containing the image stack (without the stacking part?)
+        # => guess it's fine if it's any iterable, including tensor?
+        for idx in range(len(self.input_names)):
+            current_key = f"input_image_{idx}"
+            current = {"stack": [], "stack_crop": [], "last_frame": None}
+            stack_size = len(sample[current_key])
+            for img_idx, img in enumerate(sample[current_key]):
+                if img_idx == stack_size - 1:
+                    current["last_frame"] = self.input_transforms["last_frame"][idx](img)
+                current["stack"].append(self.input_transforms["stack"][idx](img))
+                current["stack_crop"].append(self.input_transforms["stack_crop"][idx](img))
+
+            for k in current:
+                if k != "last_frame":
+                    current[k] = torch.stack(current[k], 1)
+            sample[current_key] = current
+        return sample
+
+    def _apply_output_transforms(self, sample):
+        sample["output_attention"] = {k: self.output_transforms[k](sample["output_attention"])
+                                      for k in self.output_transforms}
+        return sample
+
+    def apply_transforms(self, sample):
+        self._update()
+        sample = self._apply_input_transforms(sample)
+        sample = self._apply_output_transforms(sample)
+        return sample
 
     def __call__(self, sample):
         # what do we expect from sample? (that it is a dictionary, obviously...)

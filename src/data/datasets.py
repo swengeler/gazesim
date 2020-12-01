@@ -9,7 +9,7 @@ from torchvision import transforms
 
 from src.data.utils import get_indexed_reader, resolve_split_index_path, run_info_to_path
 from src.data.transforms import MakeValidDistribution, ImageToAttentionMap, ManualRandomCrop
-from src.data.transforms import GaussianNoise, MultiRandomApply
+from src.data.transforms import GaussianNoise, MultiRandomApply, DrEYEveTransform
 from src.data.constants import STATISTICS
 
 
@@ -186,6 +186,7 @@ class StackedImageDataset(ImageDataset):
         super().__init__(config, split, cv_split)
 
         self.stack_size = config["stack_size"]
+        self.dreyeve_transforms = config["dreyeve_transforms"]
 
         # adjusting the index for stacking
         # 1. find contiguous sequences of frames
@@ -236,15 +237,18 @@ class StackedImageDataset(ImageDataset):
         for idx in range(len(self.video_input_names)):
             for in_stack_idx, (_, row) in enumerate(current_stack_df.iterrows()):
                 image = self.video_input_readers[current_run_dir][f"input_image_{idx}"][row["frame"]]
-                image = self.video_input_transforms[idx](image)
-                if self.video_input_augmentation is not None:
-                    # TODO: think about whether these should only be applied after the images have been stacked
-                    #  (according to the PyTorch documentation that should mean that the same transform is applied
-                    #  to all images in the "batch", which might be desirable if this doesn't seem to work, might
-                    #  e.g. make more sense conceptually with random masking)
-                    image = self.video_input_augmentation[idx](image)
+                if not self.dreyeve_transforms:
+                    image = self.video_input_transforms[idx](image)
+                    if self.video_input_augmentation is not None:  # maybe don't apply here for dreyeve?
+                        # TODO: think about whether these should only be applied after the images have been stacked
+                        #  (according to the PyTorch documentation that should mean that the same transform is applied
+                        #  to all images in the "batch", which might be desirable if this doesn't seem to work, might
+                        #  e.g. make more sense conceptually with random masking)
+                        image = self.video_input_augmentation[idx](image)
                 image_stack[idx].append(image)
-            image_stack[idx] = torch.stack(image_stack[idx], 1)
+
+            if not self.dreyeve_transforms:
+                image_stack[idx] = np.stack(image_stack[idx], 1)
 
         # TODO: think about whether we want original, but probably not, just because of the size
         return image_stack
@@ -684,7 +688,35 @@ class StackedImageToAttentionDataset(Dataset):
 
 class DrEYEveDataset(StackedImageDataset, ToAttentionDataset):
     # TODO: since the way of dealing with the transforms is pretty annoying, this might be for the best
-    pass
+
+    def __init__(self, config, split, cv_split=-1):
+        # TODO: should maybe be set in config and just be asserts here?
+        config["dreyeve_transforms"] = True
+        config["stack_size"] = 16
+
+        super().__init__(config, split, cv_split)
+
+        self.transform = DrEYEveTransform(self.video_input_names)
+
+    def __getitem__(self, item):
+        image_stack = self._get_image_stack(item)
+        _, attention_original = self._get_attention(item)
+        label = self.index["label"].iloc[item]
+
+        # original
+        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        out = {"original": {"output_attention": attention_original}}
+
+        # to be transformed, which has to happen "outside" the individual "get" methods for dreyeve
+        for idx, i in enumerate(image_stack):
+            out[f"input_image_{idx}"] = i
+        out["output_attention"] = attention_original
+        out["label_high_level"] = label
+
+        # transform
+        out = self.transform.apply_transforms(out)
+
+        return out
 
 
 """
@@ -886,18 +918,20 @@ if __name__ == "__main__":
         "attention_ground_truth": "moving_window_frame_mean_gt",
         "control_ground_truth": "drone_control_frame_mean_gt",
         "resize": 150,
-        "stack_size": 4,
+        "stack_size": 16,
         "split_config": resolve_split_index_path(11, data_root=os.getenv("GAZESIM_ROOT")),
         "no_normalisation": True,
         "video_data_augmentation": True
     }
 
-    dataset = StackedImageAndStateToControlDataset(test_config, "val")
+    dataset = DrEYEveDataset(test_config, "val")
     print(len(dataset))
 
     sample = dataset[0]
     print("sample:", sample.keys())
-    # print(sample["input_image_0"].shape)
+    print(sample["input_image_0"].keys())
+    for k, v in sample["input_image_0"].items():
+        print(v.shape)
     # print(sample["input_state"].shape)
     # print(sample["output_attention"].shape)
     # print(sample["output_control"].shape)
