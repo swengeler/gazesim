@@ -29,8 +29,8 @@ class GenericDataset(Dataset):
             split_index = split_index[f"split_{cv_split}"]
         self.index["split"] = split_index
         self.sub_index = self.index["split"] == self.split  # TODO: maybe do this with .loc[self.index.index]?
-        self.index = self.index[self.sub_index]
-        self.index.reset_index(drop=False, inplace=True)
+        self.index = self.index.loc[self.sub_index]
+        self.index = self.index.reset_index(drop=True)
 
         # include the high-level labels as well
         self.index["label"] = 4
@@ -56,6 +56,7 @@ class ToControlDataset(GenericDataset):
         # load additional information and put it in the index
         ground_truth = pd.read_csv(os.path.join(self.data_root, "index", f"{self.control_output_name}.csv"))
         ground_truth = ground_truth.loc[self.sub_index]
+        ground_truth = ground_truth.reset_index(drop=True)
         for col in ground_truth:
             self.index[col] = ground_truth[col]
             self.output_columns.append(col)
@@ -264,6 +265,7 @@ class StateDataset(GenericDataset):
         # load additional information and put it in the index
         drone_state = pd.read_csv(os.path.join(self.data_root, "index", "state.csv"))
         drone_state = drone_state.loc[self.sub_index]
+        drone_state = drone_state.reset_index(drop=True)
         for col in self.state_input_names:
             self.index[col] = drone_state[col]
 
