@@ -21,6 +21,7 @@ COLUMN_DICT = {
     "rot_x_quat": "rotation_x [quaternion]",
     "rot_y_quat": "rotation_y [quaternion]",
     "rot_z_quat": "rotation_z [quaternion]",
+    # TODO: add angular acceleration?
 }
 
 

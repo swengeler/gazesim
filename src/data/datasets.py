@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-from src.data.utils import get_indexed_reader, resolve_split_index_path, run_info_to_path
+from src.data.utils import get_indexed_reader, resolve_split_index_path, run_info_to_path, fps_reduction_index
 from src.data.transforms import MakeValidDistribution, ImageToAttentionMap, ManualRandomCrop
 from src.data.transforms import GaussianNoise, MultiRandomApply, DrEYEveTransform
 from src.data.constants import STATISTICS
@@ -21,14 +21,52 @@ class GenericDataset(Dataset):
         # TODO: this needs to change if we want multiple possible outputs... should this be a list? or should
         #  there be specific inputs for control_gt, attention_gt etc. => I think this would be better actually
         self.split = split
+        self.fps = config["frames_per_second"]
+        self.fps_reduced = self.fps != 60
 
         # load the index and data and select the subset to be used
         self.index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
+
+        # get information about the data split (train/test/val)
         split_index = pd.read_csv(config["split_config"] + ".csv")
         if cv_split >= 0:
             split_index = split_index[f"split_{cv_split}"]
         self.index["split"] = split_index
-        self.sub_index = self.index["split"] == self.split  # TODO: maybe do this with .loc[self.index.index]?
+
+        # TODO: subsampling here! (however, still need to account for the indexing change when getting frames)
+        #  other possibility would be to just write frames multiple times... that would make things a lot easier
+        #  however, this would e.g. make problems with optical flow...
+        #  => should probably just adjust the "frame" column here => does this have other implications
+        #  => yes, e.g. attention should actually still use the original frames I think; jesus what a mess
+        #  => I guess that wouldn't be the case if the attention videos are generated again, but that might not be
+        #     a good idea in terms of the time it would take
+        #  => maybe should just calculate the new frames in one column and just use that => then what about indexing?
+        #     could do something similar to the stacked frames (however, what would become of the whole frame stacking
+        #     thing?)
+        #  => easiest thing for existing stuff to work might be to reduce the dataframe, adjust the old frame column
+        #     to index into the new videos (with lower FPS), and then just add a column with the original frames to
+        #     be able to e.g. access attention => hopefully that way, stacking should also still be possible
+        # if a video with FPS != 60 is supposed to be used, need to subsample the dataframe and "re-index"
+        # the "frame" column (while maintaining the original to e.g. load from 60 FPS attention videos)
+        subsampling_index = True
+        if self.fps_reduced:
+            subsampling_index, subsampling_index_numeric, new_frame_index = fps_reduction_index(
+                self.index, fps=self.fps,
+                groupby_columns=["track_name", "subject", "run"],
+                return_sub_index_by_group=True
+            )
+            # keep the old frames for e.g. predicting attention, and compute new frames for low FPS indexing
+            self.index["frame_original_fps"] = self.index["frame"].copy()
+            self.index["frame"] = -1
+            self.index.loc[subsampling_index_numeric, "frame"] = new_frame_index
+
+        # TODO: need to think about whether subsampling can ever happen for attention as well (usually only masked
+        #  videos should be subsampled/low FPS though)
+        #  => this will be necessary if we want to use a lower frame rate for creating videos with the MPC
+
+        # create the final sub-index and apply it to the dataframe
+        self.sub_index = self.index["split"] == self.split
+        self.sub_index = self.sub_index & subsampling_index
         self.index = self.index.loc[self.sub_index]
         self.index = self.index.reset_index(drop=True)
 
@@ -88,7 +126,7 @@ class ToAttentionDataset(GenericDataset):
 
     def _get_attention(self, item):
         current_row = self.index.iloc[item]
-        current_frame_index = current_row["frame"]
+        current_frame_index = current_row["frame_original_fps" if self.fps_reduced else "frame"]
         current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
                                                                         current_row["run"],
                                                                         current_row["track_name"]))
@@ -115,6 +153,10 @@ class ImageDataset(GenericDataset):
         super().__init__(config, split, cv_split)
 
         self.video_input_names = config["input_video_names"]
+
+        # TODO: if there are multiple videos, should probably be able to specify (or decide on the fly?) whether
+        #  they should be loaded at 60 FPS or less? => for now, just assume that only videos with the same
+        #  frame rate (except for the attention output) are used
 
         with open(config["split_config"] + "_info.json", "r") as f:
             split_index_info = json.load(f)
@@ -156,7 +198,7 @@ class ImageDataset(GenericDataset):
 
     def _get_image(self, item):
         current_row = self.index.iloc[item]
-        current_frame_index = current_row["frame"]
+        current_frame_index = current_row["frame"]  # TODO: add decision on which index to use
         current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
                                                                         current_row["run"],
                                                                         current_row["track_name"]))
@@ -915,21 +957,22 @@ class StackedImageAndStateToControlDataset(Dataset):
 if __name__ == "__main__":
     test_config = {
         "data_root": os.getenv("GAZESIM_ROOT"),
-        "input_video_names": ["screen"],
+        "input_video_names": ["flightmare_2"],  # ["screen"],
         "drone_state_names": ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ"],
         "attention_ground_truth": "moving_window_frame_mean_gt",
         "control_ground_truth": "drone_control_frame_mean_gt",
         "resize": 150,
         "stack_size": 16,
         "split_config": resolve_split_index_path(11, data_root=os.getenv("GAZESIM_ROOT")),
+        "frames_per_second": 2,
         "no_normalisation": True,
-        "video_data_augmentation": True
+        "video_data_augmentation": False
     }
 
-    dataset = DrEYEveDataset(test_config, "val")
-    print(len(dataset))
+    dataset = DrEYEveDataset(test_config, "train")
+    print("dataset size:", len(dataset))
 
-    sample = dataset[0]
+    sample = dataset[len(dataset) - 1]
     print("sample:", sample.keys())
     print(sample["input_image_0"].keys())
     for k, v in sample["input_image_0"].items():

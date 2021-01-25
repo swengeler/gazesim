@@ -11,6 +11,7 @@ from src.training.helpers import resolve_dataset_name, resolve_resize_parameters
 DEFAULT_VALUES = {
     "data_root": os.getenv("GAZESIM_ROOT"),
     "split_config": 0,
+    "frames_per_second": 60,
     "input_video_names": ["screen"],
     "drone_state_names": ["all"],
     "attention_ground_truth": "moving_window_frame_mean_gt",
@@ -95,6 +96,22 @@ def parse_config(args):
         import pandas as pd
         config["cv_splits"] = len(pd.read_csv(config["split_config"] + ".csv").columns)
         config["no_normalisation"] = True  # TODO: might not want to do this automatically
+
+    assert 60 % config["frames_per_second"] == 0, "FPS needs to be a divisor of 60."
+
+    for ivn in config["input_video_names"]:
+        result = re.search(r"flightmare_\d+", ivn)
+        if result is not None:
+            fps = int(result[0][11:])
+            if fps != config["frames_per_second"]:
+                print("One of the input videos ('{}') does not match the specified FPS ({}), changing to {} FPS."
+                      .format(ivn, config["frames_per_second"], fps))
+                config["frames_per_second"] = fps
+                # TODO: if there are multiple "lower FPS inputs", then it will be the set to the last one, but it
+                #  should probably either set it to the lowest one or warn the user that only one low FPS input can
+                #  be specified (otherwise things will get problematic, because the actual FPS of the videos would
+                #  have to be determined when loading the data, which I guess would be an alternative option in
+                #  automatically setting the FPS, but let's leave it at this for now)
 
     # config entries related to the model
     config["model_info"] = None

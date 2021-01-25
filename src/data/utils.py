@@ -286,3 +286,17 @@ def find_contiguous_sequences(data, new_index=False):
         # note that the range is exclusive: [start_frame, end_frame)
         sequences.append((start_index, frames[i + 1]))
     return sequences
+
+
+def fps_reduction_index(data, fps=60, groupby_columns=None, return_sub_index_by_group=False):
+    assert 60 % fps == 0, "FPS needs to be a divisor of 60."
+    step = int(60 / fps)
+    idx_separate = data.groupby(groupby_columns).apply(lambda x: x[::step].index.values).values
+    idx_combined = np.concatenate(idx_separate)
+    idx_combined_bool = data.index.isin(idx_combined)
+    if return_sub_index_by_group:
+        sub_idx = []
+        for idx in idx_separate:
+            sub_idx.extend(list(range(len(idx))))
+        return idx_combined_bool, idx_combined, sub_idx
+    return idx_combined_bool, idx_combined
