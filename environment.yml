@@ -14,12 +14,13 @@ dependencies:
   - astunparse=1.6.3=py_0
   - async-timeout=3.0.1=py38_0
   - attrs=20.3.0=pyhd3eb1b0_0
+  - av=8.0.3=py38hcaf3a0b_0
   - blas=1.0=mkl
   - blinker=1.4=py38_0
   - brotlipy=0.7.0=py38h27cfd23_1003
   - bzip2=1.0.8=h7b6447c_0
   - c-ares=1.17.1=h27cfd23_0
-  - ca-certificates=2021.1.19=h06a4308_0
+  - ca-certificates=2020.12.5=ha878542_0
   - cachetools=4.2.0=pyhd3eb1b0_0
   - casadi=3.5.5=py38hd0ca502_2
   - certifi=2020.12.5=py38h578d9bd_1
@@ -40,10 +41,13 @@ dependencies:
   - distro=1.5.0=pyhd3eb1b0_1
   - enum34=1.1.10=py38h32f6830_2
   - expat=2.2.10=he6710b0_2
+  - ffmpeg=4.3.1=hca11adc_2
   - fontconfig=2.13.0=h9420a91_0
   - freetype=2.10.4=h5ab3b9f_0
   - gast=0.3.3=py_0
   - glib=2.66.1=h92f7085_0
+  - gmp=6.2.1=h58526e2_0
+  - gnutls=3.6.13=h85f3911_1
   - google-auth=1.24.0=pyhd3eb1b0_0
   - google-auth-oauthlib=0.4.2=pyhd3eb1b0_2
   - google-pasta=0.2.0=py_0
@@ -66,6 +70,7 @@ dependencies:
   - keras-preprocessing=1.1.0=py_1
   - kiwisolver=1.3.0=py38h2531618_0
   - krb5=1.18.2=h173b8e3_0
+  - lame=3.100=h7f98852_1001
   - lcms2=2.11=h396b838_0
   - ld_impl_linux-64=2.33.1=h53a641e_7
   - libblas=3.9.0=1_h6e990d7_netlib
@@ -101,12 +106,14 @@ dependencies:
   - mumps-include=5.2.1=ha770c72_10
   - mumps-seq=5.2.1=hc1830dd_10
   - ncurses=6.2=he6710b0_1
+  - nettle=3.6=he412f7d_0
   - networkx=2.5=py_0
   - ninja=1.10.2=py38hff7bd54_0
   - numpy=1.19.2=py38h54aff64_0
   - numpy-base=1.19.2=py38hfa32c7d_0
   - oauthlib=3.1.0=py_0
   - olefile=0.46=py_0
+  - openh264=2.1.1=h780b84a_0
   - openssl=1.1.1i=h7f98852_0
   - opt_einsum=3.1.0=py_0
   - packaging=20.8=pyhd3eb1b0_0
@@ -168,6 +175,7 @@ dependencies:
   - werkzeug=1.0.1=py_0
   - wheel=0.36.2=pyhd3eb1b0_0
   - wrapt=1.12.1=py38h7b6447c_1
+  - x264=1!161.3030=h7f98852_0
   - xz=5.2.5=h7b6447c_0
   - yaml=0.2.5=h7b6447c_0
   - yarl=1.6.3=py38h27cfd23_0

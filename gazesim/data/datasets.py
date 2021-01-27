@@ -356,8 +356,8 @@ class ImageToAttentionDataset(ImageDataset, ToAttentionDataset):
         label = self.index["label"].iloc[item]
 
         # original
-        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
-        out = {"original": {}}
+        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        # out = {"original": {}}
         out["original"]["output_attention"] = attention_original
 
         # transformed
