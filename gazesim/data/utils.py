@@ -77,7 +77,7 @@ def pair(arg):
             try:
                 property_value = float(arg_split[1])
             except ValueError:
-                print("Could not parse argument ''.".format(arg))
+                pass
     else:
         property_name = arg
         property_value = 1

@@ -48,7 +48,9 @@ def ungroup_indices(data, grouped_data, group_by_columns, *indices):
 
     ungrouped_indices = []
     for idx in indices:
-        if isinstance(idx[0], np.ndarray):
+        if len(idx) == 0:
+            ungrouped_idx = idx
+        elif isinstance(idx[0], np.ndarray):
             ungrouped_idx = []
             for sub_idx in idx:
                 sub_idx = list(zip(*grouped_data.index[sub_idx].tolist()))

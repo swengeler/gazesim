@@ -669,8 +669,12 @@ def resolve_gt_class(ground_truth_type: str) -> Type[GroundTruthGenerator]:
 def main(args):
     config = vars(args)
 
-    generator = resolve_gt_class(config["ground_truth_type"])(config)
-    generator.generate()
+    if config["print_directories_only"]:
+        for r_idx, r in enumerate(iterate_directories(config["data_root"], track_names=config["track_name"])):
+            print(r_idx, ":", r)
+    else:
+        generator = resolve_gt_class(config["ground_truth_type"])(config)
+        generator.generate()
 
 
 if __name__ == "__main__":
@@ -693,6 +697,7 @@ if __name__ == "__main__":
     parser.add_argument("-rs", "--random_seed", type=int, default=127,
                         help="The random seed.")
     parser.add_argument("-se", "--skip_existing", action="store_true")
+    parser.add_argument("-pdo", "--print_directories_only", action="store_true")
 
     # arguments only used for moving_window
     parser.add_argument("--mw_size", type=int, default=25,
