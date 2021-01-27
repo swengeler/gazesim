@@ -30,10 +30,10 @@ style.use("ggplot")
 
 def main(config):
     # "formatting"
-    output_size = (400, 300)
+    output_size = (800, 600)  # TODO: change the other stuff too
     positions = {}
     if config["output_mode"] == "overlay_maps":
-        output_size = (400 * 2, 300 + 100)
+        output_size = (800 * 2, 600 + 100)
         positions["ground_truth"] = (10, 40)
         positions["prediction"] = (10, 75)
         positions["valid_lap"] = (310, 40)
@@ -41,7 +41,7 @@ def main(config):
         positions["turn_left"] = (610, 40)
         positions["turn_right"] = (610, 75)
     elif config["output_mode"] == "overlay_all":
-        output_size = (400, 300 + 300)
+        output_size = (800, 600 + 300)
         positions["ground_truth"] = (10, 40)
         positions["prediction"] = (10, 75)
         positions["valid_lap"] = (10, 140)
@@ -49,7 +49,7 @@ def main(config):
         positions["turn_left"] = (10, 240)
         positions["turn_right"] = (10, 275)
     elif config["output_mode"] == "overlay_none":
-        output_size = (400 * 3, 300 + 100)
+        output_size = (800 * 3, 600 + 100)
         positions["ground_truth"] = (410, 75)
         positions["prediction"] = (810, 75)
         positions["valid_lap"] = (10, 40)
@@ -57,7 +57,7 @@ def main(config):
         positions["turn_left"] = (410, 40)
         positions["turn_right"] = (810, 40)
     elif config["output_mode"] == "overlay_simple":
-        output_size = (400, 300 + 100)
+        output_size = (800, 600 + 100)
         positions["ground_truth"] = (10, 40)
         positions["prediction"] = (10, 75)
 
@@ -86,7 +86,7 @@ def main(config):
     train_config["model_load_path"] = config["model_load_path"]
     train_config = parse_train_config(train_config)
     train_config["split_config"] = config["split_config"]
-    # train_config["input_video_names"] = [config["video_name"]]
+    train_config["input_video_names"] = [config["video_name"]]
 
     # load the model
     model_info = train_config["model_info"]
@@ -135,7 +135,7 @@ def main(config):
                 # TODO: also input video name
                 video_capture = cv2.VideoCapture(os.path.join(config["data_root"], run_dir, "{}.mp4".format(config["video_name"])))
                 fps, fourcc = (video_capture.get(i) for i in range(5, 7))
-                video_name = "{}_comparison_{}_{}.mp4".format("default_attention_gt", config["output_mode"], split)
+                video_name = "{}_comparison_{}_{}_{}.mp4".format("default_attention_gt", config["video_name"], config["output_mode"], split)
                 video_writer = cv2.VideoWriter(os.path.join(video_dir, video_name), int(fourcc), fps, output_size, True)
                 video_writer_dict[run_dir] = video_writer
 
@@ -154,7 +154,7 @@ def main(config):
                 attention_prediction = prediction["output_attention"].cpu().detach().numpy().squeeze()
 
                 # get the original frame as a numpy array (also convert color for OpenCV)
-                frame = sample["input_image_0"].cpu().detach().numpy().squeeze().transpose(1, 2, 0)
+                frame = sample["original"]["input_image_0"].cpu().detach().numpy().squeeze()
                 frame = (frame * 255.0).astype(np.uint8)
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
@@ -173,6 +173,10 @@ def main(config):
                 # set all but one colour channel for GT and predicted labels to 0
                 attention_gt[:, :, 1:] = 0
                 attention_prediction[:, :, :-1] = 0
+
+                # scale the attention maps to the right size
+                attention_gt = cv2.resize(attention_gt, (800, 600))
+                attention_prediction = cv2.resize(attention_prediction, (800, 600))
 
                 # stack the frames/labels for the video
                 temp = np.zeros(output_size[::-1] + (3,), dtype="uint8")
@@ -239,7 +243,7 @@ if __name__ == "__main__":
     parser.add_argument("-tn", "--track_name", type=str, default="flat",
                         help="The name of the track.")
     parser.add_argument("-om", "--output_mode", type=str, default="overlay_maps",
-                        choices=["overlay_maps", "overlay_all", "overlay_none"],
+                        choices=["overlay_maps", "overlay_all", "overlay_none", "overlay_simple"],
                         help="The path to the model checkpoint to use for computing the predictions.")
     parser.add_argument("-sf", "--slow_down_factor", type=int, default=1,
                         help="Factor by which the output video is slowed down (frames are simply saved multiple times).")
