@@ -534,6 +534,14 @@ class DroneControlMPCGT(GroundTruthGenerator):
         return df_control_gt, df_control_measurements, control_gt_path, control_measurements_path, match_index, c, oc
 
     def compute_gt(self, run_dir):
+        if not os.path.exists(os.path.join(run_dir, "trajectory_mpc_{}.csv".format(self.command_frequency))):
+            print("WARNING: No MPC trajectory found for directory '{}'.".format(run_dir))
+            return
+
+        start = time()
+
+        print("\nProcessing '{}'.".format(run_dir))
+
         # get info about the current run
         run_info = parse_run_info(run_dir)
         subject = run_info["subject"]
@@ -564,16 +572,38 @@ class DroneControlMPCGT(GroundTruthGenerator):
         # add information about control GT being available to frame-wise screen info
         min_length = min(len(df_screen.index), len(df_traj.index))
 
-        df_control_gt.loc[match_index, self.class_name].iloc[:min_length] = 1
+        # print(min_length, len(df_screen.index), len(df_traj.index))
+        # print(sum(match_index))
+        # print("BEFORE")
+        # print(df_control_gt.loc[match_index, self.class_name])
+        # print(len(df_control_gt.index))
+
+        df_control_gt.loc[match_index, self.class_name] = df_control_gt.loc[match_index, "frame"].isin(
+            df_screen.loc[:min_length, "frame"]).astype(int).values
         df_control_measurements_columns = df_control_measurements.copy()[c]
 
-        for (_, row), f in zip(df_traj.iterrows()[:min_length], df_screen["frame"].iloc[:min_length]):
+        # print("AFTER")
+        # print(df_control_gt.loc[match_index, self.class_name])
+
+        # print(len(df_control_measurements_columns.index))
+
+        for (_, row), f in tqdm(zip(list(df_traj.iterrows())[:min_length],
+                                    df_screen["frame"].iloc[:min_length]), total=min_length):
             df_control_measurements_columns.iloc[match_index & (df_control_gt["frame"] == f)] = row.values
+
+        # print(len(df_control_measurements_columns.index))
         df_control_measurements[c] = df_control_measurements_columns[c]
+        # print(len(df_control_measurements.index))
+
+        # print(df_control_gt.loc[match_index, self.class_name])
+        # print(df_control_measurements_columns.loc[match_index])
+        # print(df_control_measurements.loc[match_index])
 
         # save control gt to CSV with updated data
         df_control_gt.to_csv(control_gt_path, index=False)
         df_control_measurements.to_csv(control_measurements_path, index=False)
+
+        print("Processed '{}'. in {:.2f}s".format(run_dir, time() - start))
 
 
 class DroneStateFrameMean(GroundTruthGenerator):
@@ -688,8 +718,8 @@ if __name__ == "__main__":
     parser.add_argument("-tn", "--track_name", type=str, nargs="+", default=["flat", "wave"], choices=["flat", "wave"],
                         help="The method to use to compute the ground-truth.")
     parser.add_argument("-gtt", "--ground_truth_type", type=str, default="moving_window_frame_mean_gt",
-                        choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt", "random_gaze_gt",
-                                 "drone_state_frame_mean", "optical_flow"],
+                        choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt", "drone_control_mpc_gt",
+                                 "random_gaze_gt", "drone_state_frame_mean", "optical_flow"],
                         help="The method to use to compute the ground-truth.")
     parser.add_argument("-mcf", "--mpc_command_frequency", type=int, default=20,
                         help="Frequency at which control inputs were computed for MPC drone control GT generation .")
