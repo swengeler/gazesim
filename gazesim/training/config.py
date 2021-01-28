@@ -124,7 +124,7 @@ def parse_config(args):
 
     # config entries related to data normalisation
     cnr_dict = {k: v for k, v in DEFAULT_VALUES["control_normalisation_range"]}
-    if config["control_normalisation_range"] is not None:
+    if config["control_normalisation_range"] is not None and not isinstance(config["control_normalisation_range"], dict):
         for k, v in config["control_normalisation_range"]:
             if k in cnr_dict:
                 cnr_dict[k] = v

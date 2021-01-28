@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from gazesim.models.layers import ControlActivationLayer, LoadableModule
+from gazesim.models.layers import ControlActivationLayer, LoadableModule, DummyLayer
 
 
 class Codevilla(LoadableModule):
@@ -44,7 +44,7 @@ class Codevilla(LoadableModule):
             Codevilla.fc_block(256, 4)
         )
 
-        self.final_activation = ControlActivationLayer()
+        self.final_activation = DummyLayer() if config["no_control_activation"] else ControlActivationLayer()
 
     @staticmethod
     def conv_block(in_channels, out_channels, kernel_size, stride, padding):
