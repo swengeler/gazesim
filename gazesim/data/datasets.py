@@ -761,7 +761,8 @@ class DrEYEveDataset(StackedImageDataset, ToAttentionDataset):
 
         # original
         # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
-        out = {"original": {"output_attention": attention_original}}
+        # out = {"original": {"output_attention": attention_original}}
+        out = {}
 
         # to be transformed, which has to happen "outside" the individual "get" methods for dreyeve
         for idx, i in enumerate(image_stack):
@@ -988,16 +989,16 @@ if __name__ == "__main__":
         }
     }
 
-    # dataset = DrEYEveDataset(test_config, "train")
-    dataset = ImageToControlDataset(test_config, "train")
+    dataset = DrEYEveDataset(test_config, "train")
+    # dataset = ImageToControlDataset(test_config, "train")
     print("dataset size:", len(dataset))
 
     sample = dataset[len(dataset) - 1]
     print("sample:", sample.keys())
-    print(sample["output_control"])
-    # print(sample["input_image_0"].keys())
-    # for k, v in sample["input_image_0"].items():
-    #     print(v.shape)
+    # print(sample["output_control"])
+    print(sample["input_image_0"].keys())
+    for k, v in sample["input_image_0"].items():
+        print(v.shape)
     # print(sample["input_state"].shape)
     # print(sample["output_attention"].shape)
     # print(sample["output_control"].shape)
