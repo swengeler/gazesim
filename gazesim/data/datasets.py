@@ -986,19 +986,22 @@ if __name__ == "__main__":
             "roll": 0.5,
             "pitch": 10.0,
             "yaw": 0.01,
-        }
+        },
+        "dreyeve_transforms": False,
     }
 
-    dataset = DrEYEveDataset(test_config, "train")
+    # dataset = DrEYEveDataset(test_config, "train")
     # dataset = ImageToControlDataset(test_config, "train")
+    dataset = StackedImageToControlDataset(test_config, "train")
     print("dataset size:", len(dataset))
 
     sample = dataset[len(dataset) - 1]
     print("sample:", sample.keys())
+    print(sample["input_image_0"]["stack"].shape)
     # print(sample["output_control"])
-    print(sample["input_image_0"].keys())
-    for k, v in sample["input_image_0"].items():
-        print(v.shape)
+    # print(sample["input_image_0"].keys())
+    # for k, v in sample["input_image_0"].items():
+    #     print(v.shape)
     # print(sample["input_state"].shape)
     # print(sample["output_attention"].shape)
     # print(sample["output_control"].shape)

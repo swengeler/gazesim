@@ -12,11 +12,11 @@ DEFAULT_VALUES = {
     "data_root": os.getenv("GAZESIM_ROOT"),
     "split_config": 0,
     "frames_per_second": 60,
+    "stack_size": 16,
     "input_video_names": ["screen"],
     "drone_state_names": ["all"],
     "attention_ground_truth": "moving_window_frame_mean_gt",
     "control_ground_truth": "drone_control_frame_mean_gt",
-    # "ground_truth_name": "moving_window_mean_frame_gt",
     "config_file": None,
 
     "no_normalisation": False,
@@ -113,8 +113,8 @@ def parse_config(args):
         if result is not None:
             fps = int(result[0][11:])
             if fps != config["frames_per_second"]:
-                print("One of the input videos ('{}') does not match the specified FPS ({}), changing to {} FPS."
-                      .format(ivn, config["frames_per_second"], fps))
+                print("WARNING: One of the input videos ('{}') does not match the specified FPS ({}), "
+                      "changing to {} FPS." .format(ivn, config["frames_per_second"], fps))
                 config["frames_per_second"] = fps
                 # TODO: if there are multiple "lower FPS inputs", then it will be the set to the last one, but it
                 #  should probably either set it to the lowest one or warn the user that only one low FPS input can
@@ -129,7 +129,8 @@ def parse_config(args):
             if k in cnr_dict:
                 cnr_dict[k] = v
             else:
-                print("There is no control input named '{}', the given value for normalisation will be ignored.".format(k))
+                print("WARNING: There is no control input named '{}', the given "
+                      "value for normalisation will be ignored.".format(k))
     config["control_normalisation_range"] = cnr_dict
 
     # config entries related to the model
@@ -199,7 +200,10 @@ def parse_config(args):
 
     # dataset-specific stuff
     config["dreyeve_transforms"] = True if "dreyeve" in config["model_name"] else False
-    config["stack_size"] = 16
+    if config["stack_size"] != 16 and ("dreyeve" in config["model_name"] or "c3d" in config["model_name"]):
+        print("WARNING: Specified stack size is {} but model '{}' only works with stack size 16, "
+              "the specified value will be ignored.".format(config["stack_size"], config["model_name"]))
+        config["stack_size"] = 16
     # might want to allow user to set this if we use more flexible C3D architecture (or this
     # could have different values if we use the stacked dataset for anything else but dreyeve)
 

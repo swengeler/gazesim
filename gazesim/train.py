@@ -302,6 +302,9 @@ if __name__ == "__main__":
     parser.add_argument("-fps", "--frames_per_second", type=int,
                         help="Frame rate of the input videos (needs to be specified "
                              "since the original indexing is done at 60 FPS).")
+    parser.add_argument("-ss", "--stack_size", type=int,
+                        help="Number of frames to stack for models that take multiple "
+                             "frames as input (i.e. C3D, Dr(eye)ve, RNNs)")
     parser.add_argument("-ivn", "--input_video_names", type=str, nargs="+",
                         help="The (file) name(s) for the video(s) to use as input.")
     parser.add_argument("-dsn", "--drone_state_names", type=str, nargs="+",
@@ -340,7 +343,7 @@ if __name__ == "__main__":
                         choices=["codevilla", "c3d", "c3d_state", "codevilla300", "codevilla_skip",
                                  "codevilla_multi_head", "codevilla_dual_branch", "codevilla_no_state", "resnet_state",
                                  "resnet", "resnet_larger", "resnet_state_larger", "resnet_larger_att_ctrl",
-                                 "state_only", "dreyeve_branch", "resnet_att"],
+                                 "state_only", "dreyeve_branch", "resnet_att", "resnet_larger_gru"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,  # TODO: maybe adjust for dreyeve net
                         help="Path to load a model checkpoint from (including information about the "

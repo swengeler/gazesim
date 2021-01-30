@@ -39,7 +39,7 @@ class C3DRegressor(LoadableModule):
         self.dropout = nn.Dropout(p=0.5)
 
         self.relu = nn.ReLU()
-        self.final_activation = DummyLayer() if config["no_control_activation"] else ControlActivationLayer(),
+        self.final_activation = DummyLayer() if config["no_control_activation"] else ControlActivationLayer()
 
     def forward(self, x):
 
@@ -96,7 +96,7 @@ class C3DStateRegressor(C3DRegressor):
         self.dropout = nn.Dropout(p=0.5)
 
         self.relu = nn.ReLU()
-        self.final_activation = DummyLayer() if config["no_control_activation"] else ControlActivationLayer(),
+        self.final_activation = DummyLayer() if config["no_control_activation"] else ControlActivationLayer()
 
     def forward(self, x):
         image_x = self.relu(self.conv1(x["input_image_0"]["stack"]))
