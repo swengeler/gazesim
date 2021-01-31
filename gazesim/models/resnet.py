@@ -306,6 +306,7 @@ class ResNetRegressor(LoadableModule):
 
     def forward(self, x):
         image_x = self.features(x["input_image_0"])
+        print(image_x.shape)
         image_x = self.pooling(image_x)
         image_x = image_x.reshape(image_x.size(0), -1)
 
@@ -528,9 +529,11 @@ if __name__ == "__main__":
     }
 
     # net = ResNet18DualBranchRegressor().to(device)
-    net = ResNetLargerAttentionAndControl(cfg).to(device)
+    # net = ResNetLargerAttentionAndControl(cfg).to(device)
+    net = ResNetRegressor(cfg).to(device)
     out = net(sample)
-    print(out)
+    # print(out)
+    # print(net)
 
     # summary(net, (3, 300, 400))
 

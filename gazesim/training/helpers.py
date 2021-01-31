@@ -10,6 +10,7 @@ from gazesim.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetS
 from gazesim.models.resnet import ResNetLargerAttentionAndControl, ResNetAttention
 from gazesim.models.dreyeve import SaliencyBranch
 from gazesim.models.rnn import ResNetLargerGRURegressor
+from gazesim.models.ue4sim import UE4SimRegressor
 from gazesim.models.utils import image_log_softmax
 
 
@@ -32,6 +33,7 @@ def resolve_model_class(model_name):
         "dreyeve_branch": SaliencyBranch,
         "resnet_att": ResNetAttention,
         "resnet_larger_gru": ResNetLargerGRURegressor,
+        "ue4sim": UE4SimRegressor,
     }[model_name]
 
 
@@ -113,6 +115,7 @@ def resolve_dataset_name(model_name):
         "dreyeve_branch": "DrEYEveDataset",
         "resnet_att": "ImageToAttentionDataset",
         "resnet_larger_gru": "StackedImageToControlDataset",
+        "ue4sim": "ImageToControlDataset",
     }[model_name]
 
 
@@ -167,6 +170,7 @@ def resolve_resize_parameters(model_name):
         "dreyeve_branch": (112, 112),  # kind of a dummy value
         "resnet_att": 300,
         "resnet_larger_gru": 150,
+        "ue4sim": (180, 320),
     }[model_name]
 
 

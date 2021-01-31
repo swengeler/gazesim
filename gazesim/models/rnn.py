@@ -71,9 +71,9 @@ class ResNetLargerGRURegressor(LoadableModule):
         for i in range(sequence_length):
             hidden_x = self.rnn_cell(image_x[:, i], hidden_x)
 
-        probabilities = self.regressor(hidden_x)
+        control_inputs = self.regressor(hidden_x)
 
-        out = {"output_control": probabilities}
+        out = {"output_control": control_inputs}
         if return_hidden:
             out["output_hidden"] = hidden_x
         return out
