@@ -229,10 +229,24 @@ class ImageDataset(GenericDataset):
         # original and non-original
         image_original = [np.array(i.copy()) for i in image]
         image = [self.video_input_transforms[idx](i) for idx, i in enumerate(image)]
-        if self.video_input_augmentation is not None:
+        if self.video_input_augmentation is not None and self.split == "train":
             image = [self.video_input_augmentation[idx](i) for idx, i in enumerate(image)]
 
         return image, image_original
+
+    def __getitem__(self, item):
+        image, image_original = self._get_image(item)
+        label = self.index["label"].iloc[item]
+
+        # original
+        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+
+        # transformed
+        for idx, i in enumerate(image):
+            out[f"input_image_{idx}"] = i
+        out["label_high_level"] = label
+
+        return out
 
 
 class StackedImageDataset(ImageDataset):
@@ -377,8 +391,8 @@ class ImageToControlDataset(ImageDataset, ToControlDataset):
         label = self.index["label"].iloc[item]
 
         # original
-        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
-        out = {}
+        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        # out = {}
 
         # transformed
         for idx, i in enumerate(image):

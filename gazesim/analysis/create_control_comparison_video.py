@@ -10,9 +10,7 @@ import torch
 
 from torch.utils.data._utils.collate import default_collate as to_batch
 from tqdm import tqdm
-from gazesim.models.c3d import C3DRegressor
-from gazesim.data.old_datasets import get_dataset
-from gazesim.data.utils import parse_run_info, find_contiguous_sequences, resolve_split_index_path, run_info_to_path
+from gazesim.data.utils import find_contiguous_sequences, resolve_split_index_path, run_info_to_path, fps_reduction_index
 from gazesim.training.config import parse_config as parse_train_config
 from gazesim.training.helpers import resolve_model_class, resolve_dataset_class, resolve_optimiser_class
 from gazesim.training.utils import to_device
@@ -63,7 +61,7 @@ def create_frame(fig, ax, control_gt, control_prediction, input_images):
     return frame
 
 
-def test(config):
+def main(config):
     # load frame_index and split_index
     frame_index = pd.read_csv(os.path.join(config["data_root"], "index", "frame_index.csv"))
     split_index = pd.read_csv(config["split_config"] + ".csv")
@@ -89,6 +87,13 @@ def test(config):
     train_config["model_load_path"] = config["model_load_path"]
     train_config = parse_train_config(train_config)
     train_config["split_config"] = config["split_config"]
+    train_config["input_video_names"] = [config["video_name"]]
+    # train_config["frames_per_second"] = 60
+
+    # from pprint import pprint
+    # train_config["model_info"] = None
+    # pprint(train_config)
+    # exit()
 
     # load the model
     model_info = train_config["model_info"]
@@ -105,11 +110,26 @@ def test(config):
     # could either ignore that if it is the case, complain/skip if there is overlap in a single sequence or just
     # use a more "rigorous" structure, where we always filter by split => probably the latter
 
+    # taking care of frame rate subsampling stuff
+    subsampling_index, subsampling_index_numeric, new_frame_index = fps_reduction_index(
+        frame_index, fps=train_config["frames_per_second"],
+        groupby_columns=["track_name", "subject", "run"],
+        return_sub_index_by_group=True
+    )
+    frame_index["frame_original_fps"] = frame_index["frame"].copy()
+    frame_index["frame"] = -1
+    frame_index.loc[subsampling_index_numeric, "frame"] = new_frame_index
+
     fig, ax = plt.subplots(figsize=(8, 6), dpi=100)
     for split in config["split"]:
-        current_frame_index = frame_index.loc[split_index["split"] == split]
+        sub_index = (split_index["split"] == split) & subsampling_index
+        current_frame_index = frame_index.loc[sub_index]
+
+        # current_frame_index = frame_index.loc[split_index["split"] == split]
         current_dataset = resolve_dataset_class(train_config["dataset_name"])(train_config, split=split)
+        # TODO: contiguous sequences need frame_skip thingy
         sequences = find_contiguous_sequences(current_frame_index, new_index=True)
+        # TODO: actually, should probably let this do its thing and
 
         video_writer_dict = {}
         # TODO: maybe would be better to additionally sort by subject/run somehow and take care of all of the
@@ -143,9 +163,10 @@ def test(config):
                 video_dir = os.path.join(save_dir, run_dir)
                 if not os.path.exists(video_dir):
                     os.makedirs(video_dir)
-                video_capture = cv2.VideoCapture(os.path.join(config["data_root"], run_dir, "screen.mp4"))
+                video_capture = cv2.VideoCapture(os.path.join(config["data_root"], run_dir,
+                                                              "{}.mp4".format(config["video_name"])))
                 fps, fourcc = (video_capture.get(i) for i in range(5, 7))
-                video_name = f"control_comparison_{split}.mp4"
+                video_name = "control_comparison_{}_{}.mp4".format(config["video_name"], split)
                 video_writer = cv2.VideoWriter(os.path.join(video_dir, video_name), int(fourcc), fps, (1600, 600), True)
                 video_writer_dict[run_dir] = video_writer
 
@@ -167,6 +188,8 @@ def test(config):
                 # get the values as numpy arrays
                 control_gt = sample["output_control"].cpu().detach().numpy().reshape(-1)
                 control_prediction = prediction["output_control"].cpu().detach().numpy().reshape(-1)
+                # control_gt /= np.array([20.0, 6.0, 6.0, 6.0])
+                # control_prediction /= np.array([20.0, 6.0, 6.0, 6.0])
 
                 # get the input images (for now there will only be one)
                 input_images = []
@@ -184,165 +207,6 @@ def test(config):
             vr.release()
 
 
-def handle_single_video(args, run_dir, frame_info_path):
-
-    # create the directory structure to save the video
-    rel_run_dir = os.path.relpath(run_dir, os.path.abspath(os.path.join(run_dir, os.pardir, os.pardir)))
-    log_dir = os.path.abspath(os.path.join(os.path.dirname(args.model_path), os.pardir))
-    save_dir = os.path.join(log_dir, "visualisations", rel_run_dir)
-
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-
-    # model info/parameters
-    use_cuda = torch.cuda.is_available()
-    device = torch.device("cuda:0" if use_cuda else "cpu")
-    model_info = torch.load(args.model_path, map_location=device)
-
-    # create model
-    # TODO: should work with other model classes
-    model = C3DRegressor()
-    model.load_state_dict(model_info["model_state_dict"])
-    model = model.to(device)
-    model.eval()
-
-    # load the dataframe with the info
-    df_frame_info = pd.read_csv(frame_info_path)
-
-    # create the dataset
-    root_dir = os.path.join(run_dir, os.pardir, os.pardir)
-    run_info = parse_run_info(run_dir)
-    sub_index = (0, -1)
-    run_split = "train"
-    for split in ["train", "val", "test"]:
-        df_test = pd.read_csv(os.path.join(root_dir, f"turn_left_drone_control_gt_{split}.csv"))
-        if len(df_test[(df_test["subject"] == run_info["subject"]) & (df_test["run"] == run_info["run"])].index) != 0:
-            # found the right file, get the start and end index
-            temp = df_test[(df_test["subject"] == run_info["subject"]) & (df_test["run"] == run_info["run"])]
-
-            start_index = temp.index[0]
-            end_index = temp.index[-1] + 1
-
-            sub_index = (start_index, end_index)
-            run_split = split
-
-            break
-
-    video_dataset = get_dataset(root_dir, split=run_split, data_type="turn_left_drone_control_gt",
-                                resize_height=(122, 122), use_pims=args.use_pims, sub_index=sub_index)
-    video_dataset.return_original = True
-
-    # determine size and where to position things based on the output mode
-    output_size = (800 * 2, 600)
-
-    # extract FPS and codec information and create the video writer
-    if run_dir not in video_dataset.cap_dict:
-        video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
-    else:
-        video_capture = video_dataset.cap_dict[os.path.join(run_dir)]["data"]
-    fps, fourcc = (video_capture.get(i) for i in range(5, 7))
-    video_name = f"{args.model_path[-11:-3]}_drone_control_gt_comparison_test.mp4"
-    video_writer = cv2.VideoWriter(os.path.join(save_dir, video_name), int(fourcc), fps, output_size, True)
-
-    # loop through all frames in frame_info
-    for _, row in tqdm(df_frame_info.iterrows(), total=len(df_frame_info.index)):
-        # TODO: ideally need some way to identify the sequences that are actually usable
-        #  => might be better to not even use screen_info (should be removed anyway) and instead maybe access
-        #     the sequences information used for the creation of the dataset anyway
-        #  of course this presupposes that full sequences are used for one dataset...
-
-        # filter frames if specified
-        if args.filter is not None and row[args.filter] != 1:
-            continue
-
-        if len(video_dataset.df_index.loc[video_dataset.df_index["frame"] == row["frame"]]) == 0:
-            continue
-
-        if video_dataset.df_index.loc[video_dataset.df_index["frame"] == row["frame"], "stack_index"].values[0] == -1:
-            continue
-
-        # print(row["frame"])
-        # print(video_dataset.df_index.loc[video_dataset.df_index["frame"] == row["frame"], "stack_index"].values[0])
-        index = video_dataset.df_index.loc[video_dataset.df_index["frame"] == row["frame"], "stack_index"].values[0]
-        # dataset_index = video_dataset.df_index.index[video_dataset.df_index["frame"] == row["frame"]].values[0]
-        # print(video_dataset.df_index["stack_index"].iloc[dataset_index:(dataset_index + 50)])>
-
-        # return original frame and predict label
-        frame, label, frame_original, _ = video_dataset[index]
-        frame, label = frame.unsqueeze(0).to(device), label.unsqueeze(0).to(device) if label is not None else label
-        predicted_label = model(frame)
-
-        # convert to numpy for easier processing
-        label = label.cpu().detach().numpy().reshape(-1)
-        predicted_label = predicted_label.cpu().detach().numpy().reshape(-1)
-
-        # downscale original frame to match the size of the labels => no need for that now
-        frame = frame_original[-1]
-        if args.use_pims:
-            frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-        # plot in numpy and convert to opencv-compatible image
-        x = np.arange(len(label))
-        width = 0.35
-
-        fig, ax = plt.subplots(figsize=(8, 6), dpi=100)
-        rects1 = ax.bar(x - width / 2, label, width, label='GT')
-        rects2 = ax.bar(x + width / 2, predicted_label, width, label='pred')
-        ax.set_ylim(-1, 1)
-        ax.set_xticks(x)
-        ax.axhline(c="k", lw=0.2)
-        ax.legend()
-        fig.tight_layout()
-
-        fig.canvas.draw()
-        plot_image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-        plot_image = plot_image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-
-        # stack the frames/labels for the video
-        new_frame = np.hstack((frame, plot_image))
-        new_frame = cv2.cvtColor(new_frame, cv2.COLOR_RGB2BGR)
-
-        # write the newly created frame to file
-        for _ in range(args.slow_down_factor):
-            video_writer.write(new_frame)
-
-        # if row["frame"] >= 500:
-        #     break
-
-
-def handle_single_run(args, run_dir):
-    # need screen_frame_info.csv for information about valid lap etc.
-    # need ground-truth to be there as well
-    gt_video_path = os.path.join(run_dir, f"{args.ground_truth_name}.mp4")
-    df_frame_info_path = os.path.join(run_dir, "screen_frame_info.csv")
-
-    # check if required files exist
-    if os.path.exists(gt_video_path) and os.path.exists(df_frame_info_path):
-        handle_single_video(args, run_dir, df_frame_info_path)
-
-
-def main(args):
-    args.data_root = os.path.abspath(args.data_root)
-    # loop through directory structure and create plots for every run/video that has the necessary information
-    # check if data_root is already a subject or run directory
-    if re.search(r"/s0\d\d", args.data_root):
-        if re.search(r"/\d\d_", args.data_root):
-            handle_single_run(args, args.data_root)
-        else:
-            for run in sorted(os.listdir(args.data_root)):
-                run_dir = os.path.join(args.data_root, run)
-                if os.path.isdir(run_dir) and args.track_name in run_dir:
-                    handle_single_run(args, run_dir)
-    else:
-        for subject in sorted(os.listdir(args.data_root)):
-            subject_dir = os.path.join(args.data_root, subject)
-            if os.path.isdir(subject_dir):
-                for run in sorted(os.listdir(subject_dir)):
-                    run_dir = os.path.join(subject_dir, run)
-                    if os.path.isdir(run_dir) and args.track_name in run_dir:
-                        handle_single_run(args, run_dir)
-
-
 def parse_config(args):
     config = vars(args)
     config["split_config"] = resolve_split_index_path(config["split_config"], config["data_root"])
@@ -358,6 +222,8 @@ if __name__ == "__main__":
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
     parser.add_argument("-m", "--model_load_path", type=str, default=None,
                         help="The path to the model checkpoint to use for computing the predictions.")
+    parser.add_argument("-vn", "--video_name", type=str, default="screen",
+                        help="The name of the input video.")
     parser.add_argument("-s", "--split", type=str, nargs="+", default=["val"], choices=["train", "val", "test"],
                         help="Splits for which to create videos.")
     parser.add_argument("-sc", "--split_config", type=str, default=0,
@@ -387,5 +253,5 @@ if __name__ == "__main__":
 
     # main
     # main(arguments)
-    test(parse_config(arguments))
+    main(parse_config(arguments))
 

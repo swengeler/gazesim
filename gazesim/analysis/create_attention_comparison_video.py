@@ -8,6 +8,7 @@ import torch
 
 from tqdm import tqdm
 from gazesim.data.utils import find_contiguous_sequences, resolve_split_index_path, run_info_to_path
+from gazesim.data.datasets import ImageDataset
 from gazesim.training.config import parse_config as parse_train_config
 from gazesim.training.helpers import resolve_model_class, resolve_dataset_class
 from gazesim.training.utils import to_device, to_batch
@@ -60,6 +61,8 @@ def main(config):
         output_size = (800, 600 + 100)
         positions["ground_truth"] = (10, 40)
         positions["prediction"] = (10, 75)
+    elif config["output_mode"] == "prediction_only":
+        output_size = (800, 600)
 
     # load frame_index and split_index
     frame_index = pd.read_csv(os.path.join(config["data_root"], "index", "frame_index.csv"))
@@ -95,6 +98,11 @@ def main(config):
     model = model.to(device)
     model.eval()
 
+    # TODO: this is ok for now, but should probably changed e.g.
+    #  for image (stacks) + state datasets to be automatic/flexible
+    prediction_only = config["output_mode"] == "prediction_only"
+    dataset_class = ImageDataset if prediction_only else resolve_dataset_class(train_config["dataset_name"])
+
     # TODO: apply filter (can include split, subject, run I guess, not sure that lap would make sense)
     #  => actually, if we wanted to just extract a single video for one lap, it would probably make sense...
     # but if the default is that everything is used... then there is a bit of an issue for labeling complete sequences
@@ -103,7 +111,7 @@ def main(config):
 
     for split in config["split"]:
         current_frame_index = frame_index.loc[split_index["split"] == split]
-        current_dataset = resolve_dataset_class(train_config["dataset_name"])(train_config, split=split)
+        current_dataset = dataset_class(train_config, split=split)
         sequences = find_contiguous_sequences(current_frame_index, new_index=True)
         # TODO: do lower FPS stuff somehow => can probably just do [::frame_skip] and then make sure that the
         #  difference between frames is == frame_skip
@@ -150,32 +158,37 @@ def main(config):
                     "output_attention")(prediction["output_attention"]))
 
                 # get the values as numpy arrays
-                attention_gt = sample["output_attention"].cpu().detach().numpy().squeeze()
+                attention_gt = None if prediction_only else sample["output_attention"].cpu().detach().numpy().squeeze()
                 attention_prediction = prediction["output_attention"].cpu().detach().numpy().squeeze()
 
                 # get the original frame as a numpy array (also convert color for OpenCV)
                 frame = sample["original"]["input_image_0"].cpu().detach().numpy().squeeze()
-                frame = (frame * 255.0).astype(np.uint8)
+                # frame = (frame * 255.0).astype(np.uint8)
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
                 # stack greyscale labels to become RGB
-                attention_gt = np.repeat(attention_gt[np.newaxis, :, :], 3, axis=0).transpose((1, 2, 0))
+                if not prediction_only:
+                    attention_gt = np.repeat(attention_gt[np.newaxis, :, :], 3, axis=0).transpose((1, 2, 0))
                 attention_prediction = np.repeat(attention_prediction[np.newaxis, :, :], 3, axis=0).transpose((1, 2, 0))
 
                 # normalise using the maximum of the maxima of either label and convert to [0, 255] scale
-                norm_max = max([attention_gt.max(), attention_prediction.max()])
+                norm_max = attention_prediction.max() if prediction_only else max([attention_gt.max(), attention_prediction.max()])
                 if norm_max != 0:
-                    attention_gt /= norm_max
+                    if not prediction_only:
+                        attention_gt /= norm_max
                     attention_prediction /= norm_max
-                attention_gt = (attention_gt * 255).astype("uint8")
+                if not prediction_only:
+                    attention_gt = (attention_gt * 255).astype("uint8")
                 attention_prediction = (attention_prediction * 255).astype("uint8")
 
                 # set all but one colour channel for GT and predicted labels to 0
-                attention_gt[:, :, 1:] = 0
+                if not prediction_only:
+                    attention_gt[:, :, 1:] = 0
                 attention_prediction[:, :, :-1] = 0
 
                 # scale the attention maps to the right size
-                attention_gt = cv2.resize(attention_gt, (800, 600))
+                if not prediction_only:
+                    attention_gt = cv2.resize(attention_gt, (800, 600))
                 attention_prediction = cv2.resize(attention_prediction, (800, 600))
 
                 # stack the frames/labels for the video
@@ -187,7 +200,7 @@ def main(config):
                 elif config["output_mode"] == "overlay_all":
                     frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)
                     combined_labels = cv2.addWeighted(attention_gt, 0.5, attention_prediction, 0.5, 0)
-                    new_frame = cv2.addWeighted(frame, 0.5, combined_labels, 0.5, 0)
+                    new_frame = cv2.addWeighted(frame, 0.4, combined_labels, 0.6, 0)
                     temp[300:, :, :] = new_frame
                 elif config["output_mode"] == "overlay_none":
                     new_frame = np.hstack((frame, attention_gt, attention_prediction))
@@ -195,13 +208,18 @@ def main(config):
                 elif config["output_mode"] == "overlay_simple":
                     frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)
                     combined_labels = cv2.addWeighted(attention_gt, 0.5, attention_prediction, 0.5, 0)
-                    new_frame = cv2.addWeighted(frame, 0.3, combined_labels, 0.7, 0)
+                    new_frame = cv2.addWeighted(frame, 0.4, combined_labels, 0.6, 0)
                     temp[100:, :, :] = new_frame
+                elif config["output_mode"] == "prediction_only":
+                    frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)
+                    new_frame = cv2.addWeighted(frame, 0.4, attention_prediction, 0.6, 0)
+                    temp = new_frame
                 new_frame = temp
 
                 # add the other information we want to display
-                cv2.putText(new_frame, "Ground-truth", positions["ground_truth"], cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 0, 0), 1)
-                cv2.putText(new_frame, "Prediction", positions["prediction"], cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 1)
+                if not prediction_only:
+                    cv2.putText(new_frame, "Ground-truth", positions["ground_truth"], cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 0, 0), 1)
+                    cv2.putText(new_frame, "Prediction", positions["prediction"], cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 255), 1)
 
                 # write the image (possibly multiple times for slowing the video down)
                 for _ in range(config["slow_down_factor"]):
@@ -243,10 +261,12 @@ if __name__ == "__main__":
     parser.add_argument("-tn", "--track_name", type=str, default="flat",
                         help="The name of the track.")
     parser.add_argument("-om", "--output_mode", type=str, default="overlay_maps",
-                        choices=["overlay_maps", "overlay_all", "overlay_none", "overlay_simple"],
+                        choices=["overlay_maps", "overlay_all", "overlay_none", "overlay_simple", "prediction_only"],
                         help="The path to the model checkpoint to use for computing the predictions.")
     parser.add_argument("-sf", "--slow_down_factor", type=int, default=1,
                         help="Factor by which the output video is slowed down (frames are simply saved multiple times).")
+
+    # TODO: implement something to only show the predictions (because no original exists)
 
     # parse the arguments
     arguments = parser.parse_args()

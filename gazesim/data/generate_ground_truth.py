@@ -606,6 +606,98 @@ class DroneControlMPCGT(GroundTruthGenerator):
         print("Processed '{}'. in {:.2f}s".format(run_dir, time() - start))
 
 
+class DroneControlFrameMeanRawGT(GroundTruthGenerator):
+
+    NAME = "drone_control_frame_mean_raw_gt"
+
+    def get_gt_info(self, run_dir, subject, run):
+        # get the path to the index directory
+        index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
+        frame_index_path = os.path.join(index_dir, "frame_index.csv")
+        control_gt_path = os.path.join(index_dir, "control_gt.csv")
+        control_measurements_path = os.path.join(index_dir, f"{self.__class__.NAME}.csv")
+
+        df_frame_index = pd.read_csv(frame_index_path)
+
+        if os.path.exists(control_gt_path):
+            df_control_gt = pd.read_csv(control_gt_path)
+        else:
+            df_control_gt = df_frame_index.copy()
+            df_control_gt = df_control_gt[["frame", "subject", "run"]]
+
+        oc = ["throttle_thrust [N]", "roll_rate [rad/s]", "pitch_rate [rad/s]", "yaw_rate [rad/s]"]
+        c = ["throttle", "roll", "pitch", "yaw"]
+        if os.path.exists(control_measurements_path):
+            df_control_measurements = pd.read_csv(control_measurements_path)
+            df_control_measurements = df_control_measurements.rename(
+                {c: rc for c, rc in zip(oc, c)}, axis=1)
+        else:
+            df_control_measurements = df_frame_index.copy()
+            df_control_measurements = df_control_measurements[["frame"]]
+            df_control_measurements.columns = [c[0]]
+            df_control_measurements[c[0]] = np.nan
+            for col in c:
+                if col not in df_control_measurements.columns:
+                    df_control_measurements[col] = np.nan
+
+        if self.__class__.NAME not in df_control_gt.columns:
+            df_control_gt[self.__class__.NAME] = -1
+            for col in c:
+                if col not in df_control_measurements.columns:
+                    df_control_measurements[col] = np.nan
+
+        # in principle, need only subject and run to identify where to put the new info...
+        # e.g. track name is more of a property to filter on...
+        match_index = (df_control_gt["subject"] == subject) & (df_control_gt["run"] == run)
+
+        return df_control_gt, df_control_measurements, control_gt_path, control_measurements_path, match_index, c, oc
+
+    def compute_gt(self, run_dir):
+        # get info about the current run
+        run_info = parse_run_info(run_dir)
+        subject = run_info["subject"]
+        run = run_info["run"]
+
+        # get the ground-truth info
+        df_control_gt, df_control_measurements, control_gt_path, control_measurements_path, match_index, c, oc = \
+            self.get_gt_info(run_dir, subject, run)
+
+        # define paths
+        df_drone_path = os.path.join(run_dir, "drone.csv")
+        df_screen_path = os.path.join(run_dir, "screen_timestamps.csv")
+
+        # load dataframes
+        df_drone = pd.read_csv(df_drone_path)
+        df_screen = pd.read_csv(df_screen_path)
+
+        # select only the necessary data from the gaze dataframe and compute the on-screen coordinates
+        df_drone = df_drone.rename({c: rc for c, rc in zip(oc, c)}, axis=1)
+        df_drone = df_drone[(["ts"] + c)]
+        df_drone["frame"] = -1
+
+        # filter by screen timestamps
+        df_screen, df_drone = filter_by_screen_ts(df_screen, df_drone)
+
+        # compute the mean measurement for each frame
+        df_drone = df_drone[(["frame"] + c)]
+        df_drone = df_drone.groupby("frame").mean()
+        df_drone["frame"] = df_drone.index
+        df_drone = df_drone.reset_index(drop=True)
+        df_drone = df_drone[(["frame"] + c)]
+
+        # add information about control GT being available to frame-wise screen info
+        df_control_gt.loc[match_index, self.__class__.NAME] = df_screen["frame"].isin(df_drone["frame"]).astype(int).values
+        df_control_measurements_columns = df_control_measurements.copy()[c]
+        df_drone = df_drone.set_index("frame")
+        for (_, row), f in tqdm(zip(df_drone.iterrows(), df_drone.index), disable=False, total=len(df_drone.index)):
+            df_control_measurements_columns.iloc[match_index & (df_control_gt["frame"] == f)] = row.values
+        df_control_measurements[c] = df_control_measurements_columns[c]
+
+        # save control gt to CSV with updated data
+        df_control_gt.to_csv(control_gt_path, index=False)
+        df_control_measurements.to_csv(control_measurements_path, index=False)
+
+
 class DroneStateFrameMean(GroundTruthGenerator):
 
     # TODO: maybe rename this script, since this isn't technically used as ground-truth?
@@ -680,17 +772,40 @@ class DroneStateFrameMean(GroundTruthGenerator):
         df_state.to_csv(state_path, index=False)
 
 
+class DroneStateMPC(GroundTruthGenerator):
+
+    # TODO: might have to separate the drone state stuff into different files (similar to the control GT)
+
+    NAME = "drone_state_mpc_{}"
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.command_frequency = config["mpc_command_frequency"]
+        self.class_name = self.__class__.NAME.format(self.command_frequency)
+
+    def get_gt_info(self, run_dir, subject, run):
+        pass
+
+    def compute_gt(self, run_dir):
+        pass
+
+
 def resolve_gt_class(ground_truth_type: str) -> Type[GroundTruthGenerator]:
     if ground_truth_type == "moving_window_frame_mean_gt":
         return MovingWindowFrameMeanGT
     elif ground_truth_type == "drone_control_frame_mean_gt":
         return DroneControlFrameMeanGT
+    elif ground_truth_type == "drone_control_frame_mean_raw_gt":
+        return DroneControlFrameMeanRawGT
     elif ground_truth_type == "drone_control_mpc_gt":
         return DroneControlMPCGT
     elif ground_truth_type == "random_gaze_gt":
         return RandomGazeGT
     elif ground_truth_type == "drone_state_frame_mean":
         return DroneStateFrameMean
+    elif ground_truth_type == "drone_state_mpc":
+        return DroneStateMPC
     elif ground_truth_type == "optical_flow":
         return OpticalFlowFarneback
     return GroundTruthGenerator
@@ -719,7 +834,8 @@ if __name__ == "__main__":
                         help="The method to use to compute the ground-truth.")
     parser.add_argument("-gtt", "--ground_truth_type", type=str, default="moving_window_frame_mean_gt",
                         choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt", "drone_control_mpc_gt",
-                                 "random_gaze_gt", "drone_state_frame_mean", "optical_flow"],
+                                 "drone_control_frame_mean_raw_gt" "random_gaze_gt", "drone_state_frame_mean",
+                                 "drone_state_mpc", "optical_flow"],
                         help="The method to use to compute the ground-truth.")
     parser.add_argument("-mcf", "--mpc_command_frequency", type=int, default=20,
                         help="Frequency at which control inputs were computed for MPC drone control GT generation .")
