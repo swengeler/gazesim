@@ -24,3 +24,12 @@ class DummyLayer(nn.Module):
 
     def forward(self, x):
         return x
+
+
+class Conv1dSamePadding(nn.Conv1d):
+
+    def forward(self, x):
+        x_shape_last_dim = x.shape[-1]
+        x = super(Conv1dSamePadding, self).forward(x)
+        x = x[..., :x_shape_last_dim]
+        return x

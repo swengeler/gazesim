@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from scipy.spatial.transform import Rotation
 from gazesim.data.utils import get_indexed_reader, resolve_split_index_path, run_info_to_path, fps_reduction_index
 from gazesim.data.transforms import MakeValidDistribution, ImageToAttentionMap, ManualRandomCrop
 from gazesim.data.transforms import GaussianNoise, MultiRandomApply, DrEYEveTransform
@@ -16,7 +17,6 @@ from gazesim.data.constants import STATISTICS
 class GenericDataset(Dataset):
 
     def __init__(self, config, split, cv_split=-1):
-
         self.data_root = config["data_root"]
         # TODO: this needs to change if we want multiple possible outputs... should this be a list? or should
         #  there be specific inputs for control_gt, attention_gt etc. => I think this would be better actually
@@ -83,7 +83,50 @@ class GenericDataset(Dataset):
         return self.index.iloc[item]
 
 
-class ToControlDataset(GenericDataset):
+class StackedGenericDataset(GenericDataset):
+
+    def __init__(self, config, split, cv_split=-1):
+        super().__init__(config, split, cv_split)
+
+        self.stack_size = config["stack_size"]
+
+        # adjusting the index for stacking
+        # 1. find contiguous sequences of frames
+        sequences = []
+        frames = self.index["frame"]
+        jumps = (frames - frames.shift()) != 1
+        frames = list(frames.index[jumps]) + [frames.index[-1] + 1]
+        for i, start_index in enumerate(frames[:-1]):
+            # note that the range [start_frame, end_frame) is exclusive
+            sequences.append((start_index, frames[i + 1]))
+
+        # 2. use second "index" that skips the (stack_size - 1) first frames of each contiguous sequence
+        self.index["stack_index"] = -1
+        df_col_index = self.index.columns.get_loc("stack_index")
+        total_num_frame_stacks = 0
+        for start_index, end_index in sequences:
+            num_frames_seq = end_index - start_index
+            num_frame_stacks = num_frames_seq - self.stack_size + 1
+            if end_index - start_index < self.stack_size:
+                continue
+
+            # assign index over entire dataframe to "valid" frames
+            index = np.arange(num_frame_stacks) + total_num_frame_stacks
+            self.index.iloc[(start_index + self.stack_size - 1):end_index, df_col_index] = index
+
+            # keep track of the current number of stacks (highest index)
+            total_num_frame_stacks += num_frame_stacks
+
+    def __len__(self):
+        return self.index["stack_index"].max() + 1
+
+    def __getitem__(self, item):
+        current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
+        current_stack_df = self.index.iloc[(current_stack_index - self.stack_size + 1):(current_stack_index + 1)]
+        return current_stack_df.values
+
+
+class ToControlDataset(StackedGenericDataset):
 
     def __init__(self, config, split, cv_split=-1):
         super().__init__(config, split, cv_split)
@@ -110,8 +153,13 @@ class ToControlDataset(GenericDataset):
             self.output_normalisation = np.array([cnr_dict[col] for col in self.output_columns])
 
     def _get_control(self, item):
+        # TODO: this might not actually work for the other datasets anymore if this class subclasses the stacked DS
+        #  => would it be enough to set the default stack size to 0?
+        current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
+        # current_stack_index = item
+
         # extract the control GT from the dataframe
-        control = self.index[self.output_columns].iloc[item].values
+        control = self.index[self.output_columns].iloc[current_stack_index].values
         if self.output_normalisation is not None:
             control /= self.output_normalisation
         control = torch.from_numpy(control).float()
@@ -210,7 +258,7 @@ class ImageDataset(GenericDataset):
 
     def _get_image(self, item):
         current_row = self.index.iloc[item]
-        current_frame_index = current_row["frame"]  # TODO: add decision on which index to use
+        current_frame_index = current_row["frame"]
         current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
                                                                         current_row["run"],
                                                                         current_row["track_name"]))
@@ -343,6 +391,222 @@ class StateDataset(GenericDataset):
         state = torch.from_numpy(state).float()
 
         return state
+
+
+# TODO: should all of the stuff below just be stacked by default and also, should I just change everything
+#  to be stacked and if there's only one frame, you can just squeeze out that extra dimension?
+class FeatureTrackDataset(StackedGenericDataset):
+
+    def __init__(self, config, split, cv_split=-1):
+        super().__init__(config, split, cv_split)
+
+        self.feature_track_name = config["feature_track_name"]
+        self.feature_track_num = config["feature_track_num"]
+        # self.feature_track_sampling_mode = config["feature_track_sampling_mode"]
+
+        self.feature_track_readers = {}
+
+    def _get_feature_tracks(self, item):
+        current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
+        current_stack_df = self.index.iloc[(current_stack_index - self.stack_size + 1):(current_stack_index + 1)]
+        current_run_dir = os.path.join(self.data_root, run_info_to_path(current_stack_df["subject"].iloc[0],
+                                                                        current_stack_df["run"].iloc[0],
+                                                                        current_stack_df["track_name"].iloc[0]))
+
+        # current_row = self.index.iloc[item]
+        # current_frame_index = current_row["frame"]
+        # current_run_dir = os.path.join(self.data_root, run_info_to_path(current_row["subject"],
+        #                                                                 current_row["run"],
+        #                                                                 current_row["track_name"]))
+
+        # initialise the numpy file handles if necessary
+        if current_run_dir not in self.feature_track_readers:
+            self.feature_track_readers[current_run_dir] = np.load(os.path.join(
+                current_run_dir, "{}.npz".format(self.feature_track_name)))
+
+        # read the feature track information
+        feature_track_stack = []
+        for in_stack_idx, (_, row) in enumerate(current_stack_df.iterrows()):
+            feature_tracks = self.feature_track_readers[current_run_dir]["arr_{}".format(row["frame"])]
+
+            # sample from the feature tracks
+            # 3 cases:
+            # - fewer features than specified to use
+            #   => can either sample with replacement or take all and then sample the rest
+            # - more features than specified to use
+            #   => can either sample all or take first X
+            if feature_tracks.shape[0] == 0:
+                # no features at all
+                # => everything needs to be 0 or something like that probably
+                feature_tracks = np.zeros((self.feature_track_num, 5))
+            else:
+                num_missing = self.feature_track_num - feature_tracks.shape[0]
+                if num_missing > 0:
+                    idx = np.random.choice(range(feature_tracks.shape[0]), size=num_missing)
+                    feature_tracks = np.concatenate([feature_tracks, feature_tracks[idx]])
+                elif num_missing < 0:
+                    idx = np.random.choice(range(feature_tracks.shape[0]), size=self.feature_track_num, replace=False)
+                    feature_tracks = feature_tracks[idx]
+
+            # leave out the IDs
+            feature_tracks = feature_tracks[:, 1:]
+
+            feature_track_stack.append(feature_tracks)
+
+        # stack the feature tracks or reduce in dimensionality
+        if self.stack_size == 1:
+            feature_tracks = torch.from_numpy(feature_track_stack[0]).float()
+        else:
+            feature_tracks = np.stack(feature_track_stack, axis=0)
+            feature_tracks = torch.from_numpy(feature_tracks).float()
+            # TODO: might have to reorder dimensions for DDA input
+
+        # TODO: maybe normalisation (of "tracked frame count") as done in DDA?
+
+        return feature_tracks
+
+    def __getitem__(self, item):
+        feature_tracks = self._get_feature_tracks(item)
+        if self.stack_size == 1:
+            out = {"input_feature_tracks": feature_tracks}
+        else:
+            out = {"input_feature_tracks": {"stack": feature_tracks}}
+        return out
+
+
+class ReferenceDataset(StackedGenericDataset):
+    # how is this different from StateDataset? not really sure... might even replace that
+    def __init__(self, config, split, cv_split=-1):
+        super().__init__(config, split, cv_split)
+
+        self.reference_name = config["reference_name"]
+        self.reference_variables = config["reference_variables"]
+
+        # determine whether to convert to rotation matrix
+        self.convert_rotation = False
+        quaternion_variables = [f"rotation_{r}" for r in "xyzw"]
+        if all([qv in self.reference_variables for qv in quaternion_variables]):
+            self.reference_variables = [rv for rv in self.reference_variables
+                                        if rv not in quaternion_variables] + quaternion_variables
+            self.convert_rotation = True
+
+        # load additional information and put it in the index
+        drone_reference = pd.read_csv(os.path.join(self.data_root, "index", "{}.csv".format(self.reference_name)))
+        drone_reference = drone_reference.loc[self.sub_index]
+        drone_reference = drone_reference.reset_index(drop=True)
+        for col in self.reference_variables:
+            self.index[col] = drone_reference[col]
+
+    def _get_reference(self, item):
+        current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
+        current_stack_df = self.index.iloc[(current_stack_index - self.stack_size + 1):(current_stack_index + 1)]
+
+        # read the reference
+        reference = current_stack_df[self.reference_variables].values
+
+        if self.convert_rotation:
+            # convert to (flattened) rotation matrix
+            reference_rot = Rotation.from_quat(reference[:, -4:]).as_matrix().reshape((-1, 9))
+
+            # update reference
+            reference = np.concatenate((reference[:, :-4], reference_rot), axis=1)
+
+        # convert to torch tensor
+        reference = torch.from_numpy(reference).float()
+
+        return reference
+
+
+class StateEstimateDataset(StackedGenericDataset):
+
+    NOISE_STD = {
+        "position_x": 0.5,
+        "position_y": 0.5,
+        "position_z": 0.1,
+        "velocity_x": 0.3,
+        "velocity_y": 0.3,
+        "velocity_z": 0.1,
+        "rotation_w": 0.1,
+        "rotation_x": 0.05,
+        "rotation_y": 0.05,
+        "rotation_z": 0.1,
+        "omega_x": 0.1,
+        "omega_y": 0.1,
+        "omega_z": 0.1,
+    }
+
+    def __init__(self, config, split, cv_split=-1):
+        super().__init__(config, split, cv_split)
+
+        self.state_estimate_name = config["state_estimate_name"]
+        self.state_estimate_variables = config["state_estimate_variables"]
+        self.state_estimate_data_augmentation = config["state_estimate_data_augmentation"]
+
+        # determine whether to convert to rotation matrix
+        self.convert_rotation = False
+        quaternion_variables = [f"rotation_{r}" for r in "xyzw"]
+        if all([qv in self.state_estimate_variables for qv in quaternion_variables]):
+            self.state_estimate_variables = [sev for sev in self.state_estimate_variables
+                                             if sev not in quaternion_variables] + quaternion_variables
+            self.convert_rotation = True
+
+        self.noise_std = None
+        if self.state_estimate_data_augmentation:
+            self.noise_std = [StateEstimateDataset.NOISE_STD[sev] for sev in self.state_estimate_variables]
+
+        # load additional information and put it in the index
+        drone_state_estimate = pd.read_csv(os.path.join(self.data_root,
+                                                        "index", "{}.csv".format(self.state_estimate_name)))
+        drone_state_estimate = drone_state_estimate.loc[self.sub_index]
+        drone_state_estimate = drone_state_estimate.reset_index(drop=True)
+        for col in self.state_estimate_variables:
+            self.index[col] = drone_state_estimate[col]
+
+    def _get_state_estimate(self, item):
+        current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
+        current_stack_df = self.index.iloc[(current_stack_index - self.stack_size + 1):(current_stack_index + 1)]
+
+        # read the state estimate
+        state_estimate = current_stack_df[self.state_estimate_variables].values
+
+        # this should obviously be dependent on which state is used as input...
+        if self.state_estimate_data_augmentation:
+            state_estimate += np.random.normal(loc=0.0, scale=self.noise_std, size=state_estimate.shape)
+
+        if self.convert_rotation:
+            # convert to (flattened) rotation matrix
+            state_estimate_rot = Rotation.from_quat(state_estimate[:, -4:]).as_matrix().reshape((-1, 9))
+
+            # update state estimate
+            state_estimate = np.concatenate((state_estimate[:, :-4], state_estimate_rot), axis=1)
+
+        # convert to torch tensor
+        state_estimate = torch.from_numpy(state_estimate).float()
+
+        return state_estimate
+
+
+class DDADataset(FeatureTrackDataset, ReferenceDataset, StateEstimateDataset, ToControlDataset):
+
+    def __getitem__(self, item):
+        feature_tracks = self._get_feature_tracks(item)
+        reference = self._get_reference(item)
+        state_estimate = self._get_state_estimate(item)
+        control = self._get_control(item)
+
+        # concatenate reference and state estimate into one input
+        state = torch.cat((reference, state_estimate), dim=-1)
+
+        # reshape the tensors to match what is for the DDA network (i.e. "channel" dimension in right place)
+        feature_tracks = feature_tracks.permute(2, 0, 1)
+        state = state.permute(1, 0)
+
+        out = {
+            "input_feature_tracks": {"stack": feature_tracks},
+            "input_state": {"stack": state},
+            "output_control": control
+        }
+        return out
 
 
 class StateToControlDataset(StateDataset, ToControlDataset):
@@ -989,7 +1253,7 @@ if __name__ == "__main__":
         "attention_ground_truth": "moving_window_frame_mean_gt",
         "control_ground_truth": "drone_control_frame_mean_gt",
         "resize": 150,
-        "stack_size": 16,
+        "stack_size": 1,
         "split_config": resolve_split_index_path(11, data_root=os.getenv("GAZESIM_ROOT")),
         "frames_per_second": 2,
         "no_normalisation": True,
@@ -1002,16 +1266,28 @@ if __name__ == "__main__":
             "yaw": 0.01,
         },
         "dreyeve_transforms": False,
+        "feature_track_name": "ft_flightmare_60",
+        "feature_track_num": 40,
+        "feature_track_sampling_mode": "",
+        "reference_name": "drone_state_original",
+        "reference_variables": ["rotation_w", "rotation_x", "rotation_y", "rotation_z"],
+        "state_estimate_name": "drone_state_original",
+        "state_estimate_variables": ["rotation_w", "rotation_x", "rotation_y", "rotation_z"],
     }
 
     # dataset = DrEYEveDataset(test_config, "train")
-    # dataset = ImageToControlDataset(test_config, "train")
-    dataset = StackedImageToControlDataset(test_config, "train")
+    dataset = ImageToControlDataset(test_config, "train")
+    # dataset = StackedImageToControlDataset(test_config, "train")
+    # dataset = DDADataset(test_config, "train")
     print("dataset size:", len(dataset))
 
     sample = dataset[len(dataset) - 1]
     print("sample:", sample.keys())
-    print(sample["input_image_0"]["stack"].shape)
+    print(sample["output_control"])
+    # print(sample["input_feature_tracks"].shape)
+    # print(sample["input_feature_tracks"]["stack"].shape)
+    # print(sample["input_state"]["stack"].shape)
+    # print(sample["input_image_0"]["stack"].shape)
     # print(sample["output_control"])
     # print(sample["input_image_0"].keys())
     # for k, v in sample["input_image_0"].items():

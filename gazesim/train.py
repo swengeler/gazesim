@@ -276,6 +276,7 @@ def cross_validate(config, device):
 def main(config):
     # set the seed for PyTorch
     torch.manual_seed(config["torch_seed"])
+    np.random.seed(config["torch_seed"])
 
     # use GPU if possible
     use_cuda = torch.cuda.is_available()
@@ -338,12 +339,33 @@ if __name__ == "__main__":
     parser.add_argument("--vda_gaussian_noise_sigma", type=float,
                         help="Standard deviation for Gaussian noise applied for data augmentation.")
 
+    # arguments related to the DDA input modalities
+    parser.add_argument("-fts", "--feature_track_name", type=str,
+                        help="The (file) name for already extracted feature tracks for the DDA architecture.")
+    parser.add_argument("-ftn", "--feature_track_num", type=int,
+                        help="The number of feature tracks per sample to use in the DDA architecture.")
+    parser.add_argument("-rn", "--reference_name", type=str,
+                        help="The (file) name for reference states for the DDA architecture.")
+    parser.add_argument("-rv", "--reference_variables", type=str, nargs="+",
+                        help="The column names/state variables to use for the reference statess for the DDA "
+                             "architecture. Can also specify the following shorthands for pre-defined sets of "
+                             "variables: 'all', 'pos', 'vel', 'acc', 'rot' 'omega'.")
+    parser.add_argument("-sen", "--state_estimate_name", type=str,
+                        help="The (file) name for state estimate measurements for the DDA architecture.")
+    parser.add_argument("-sev", "--state_estimate_variables", type=str, nargs="+",
+                        help="The column names/state variables to use for the state estimates for the DDA "
+                             "architecture. Can also specify the following shorthands for pre-defined sets of "
+                             "variables: 'all', 'pos', 'vel', 'acc', 'rot' 'omega'.")
+    parser.add_argument("-seda", "--state_estimate_data_augmentation", action="store_true",
+                        help="Whether or not to apply data augmentation to the provided state estimates for the"
+                             "DDA architecture (in the form of adding Gaussian noise to the state variables).")
+
     # arguments related to the model
     parser.add_argument("-m", "--model_name", type=str,
                         choices=["codevilla", "c3d", "c3d_state", "codevilla300", "codevilla_skip",
                                  "codevilla_multi_head", "codevilla_dual_branch", "codevilla_no_state", "resnet_state",
                                  "resnet", "resnet_larger", "resnet_state_larger", "resnet_larger_att_ctrl",
-                                 "state_only", "dreyeve_branch", "resnet_att", "resnet_larger_gru", "ue4sim"],
+                                 "state_only", "dreyeve_branch", "resnet_att", "resnet_larger_gru", "ue4sim", "dda"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,  # TODO: maybe adjust for dreyeve net
                         help="Path to load a model checkpoint from (including information about the "

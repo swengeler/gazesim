@@ -12,7 +12,7 @@ DEFAULT_VALUES = {
     "data_root": os.getenv("GAZESIM_ROOT"),
     "split_config": 0,
     "frames_per_second": 60,
-    "stack_size": 16,
+    "stack_size": 1,
     "input_video_names": ["screen"],
     "drone_state_names": ["all"],
     "attention_ground_truth": "moving_window_frame_mean_gt",
@@ -27,6 +27,14 @@ DEFAULT_VALUES = {
     "vda_probability": 0.7,
     "vda_jitter_range": 0.2,
     "vda_gaussian_noise_sigma": 0.1,
+
+    "feature_track_name": "ft_flightmare_60",
+    "feature_track_num": 40,
+    "reference_name": "drone_state_original",
+    "reference_variables": ["vel", "rot", "omega"],
+    "state_estimate_name": "drone_state_original",
+    "state_estimate_variables": ["vel", "rot", "omega"],
+    "state_estimate_data_augmentation": False,
 
     "model_name": "resnet_larger",
     "model_load_path": None,
@@ -52,6 +60,33 @@ COLUMNS_DRONE_VEL = ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ"]
 COLUMNS_DRONE_ACC = ["DroneAccelerationX", "DroneAccelerationY", "DroneAccelerationZ"]
 COLUMNS_DRONE_ANG_VEL = ["DroneAngularX", "DroneAngularY", "DroneAngularZ"]
 COLUMNS_SHORTHAND_DICT = {"vel": COLUMNS_DRONE_VEL, "acc": COLUMNS_DRONE_ACC, "ang_vel": COLUMNS_DRONE_ANG_VEL}
+
+STATE_VARS_POS = ["position_x", "position_y", "position_z"]
+STATE_VARS_VEL = ["velocity_x", "velocity_y", "velocity_z"]
+STATE_VARS_ACC = ["acceleration_x", "acceleration_y", "acceleration_z"]
+STATE_VARS_ROT = ["rotation_w", "rotation_x", "rotation_y", "rotation_z"]
+STATE_VARS_OMEGA = ["omega_x", "omega_y", "omega_z"]
+STATE_VARS_SHORTHAND_DICT = {
+    "pos": STATE_VARS_POS,
+    "vel": STATE_VARS_VEL,
+    "acc": STATE_VARS_ACC,
+    "rot": STATE_VARS_ROT,
+    "omega": STATE_VARS_OMEGA,
+}
+
+
+def resolve_drone_state(specified, key):
+    drone_states_all = [ds for sh, dsl in key.items() for ds in dsl]
+    if specified is None or "all" in specified:
+        drone_state = drone_states_all
+    else:
+        drone_state = []
+        for ds in specified:
+            if ds in key:
+                drone_state.extend(key[ds])
+            elif ds in drone_states_all:
+                drone_state.append(ds)
+    return drone_state
 
 
 def parse_config(args):
@@ -182,6 +217,7 @@ def parse_config(args):
     else:
         config["experiment_name"] = timestamp
 
+    """
     if config["drone_state_names"] is None or "all" in config["drone_state_names"]:
         drone_state_names = COLUMNS_DRONE_VEL + COLUMNS_DRONE_ACC + COLUMNS_DRONE_ANG_VEL
     else:
@@ -192,11 +228,21 @@ def parse_config(args):
             elif sn in (COLUMNS_DRONE_VEL + COLUMNS_DRONE_ACC + COLUMNS_DRONE_ANG_VEL):
                 drone_state_names.append(sn)
     config["drone_state_names"] = drone_state_names
+    """
+    config["drone_state_names"] = resolve_drone_state(config["drone_state_names"], COLUMNS_SHORTHAND_DICT)
 
     # TODO: might want to have some "resolve" function here as well, but for now leave as defaults
     # config["attention_ground_truth"] = resolve_gt_name(config["dataset_name"])
     # config["control_ground_truth"] = resolve_gt_name(config["dataset_name"])
     # config["ground_truth_name"] = resolve_gt_name(config["dataset_name"])
+
+    # DDA stuff
+    config["reference_variables"] = resolve_drone_state(config["reference_variables"], STATE_VARS_SHORTHAND_DICT)
+    config["state_estimate_variables"] = resolve_drone_state(config["state_estimate_variables"], STATE_VARS_SHORTHAND_DICT)
+    if config["stack_size"] != 8 and "dda" in config["model_name"]:
+        print("WARNING: Specified stack size is {} but model '{}' only works with stack size 8, "
+              "the specified value will be ignored.".format(config["stack_size"], config["model_name"]))
+        config["stack_size"] = 8
 
     # dataset-specific stuff
     config["dreyeve_transforms"] = True if "dreyeve" in config["model_name"] else False

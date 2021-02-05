@@ -710,6 +710,10 @@ class DroneStateFrameMean(GroundTruthGenerator):
         frame_index_path = os.path.join(index_dir, "frame_index.csv")
         state_path = os.path.join(index_dir, "state.csv")
 
+        # TODO: should it really be the mean? or just the closest value???
+        #  => in that case something like the trajectory sampler would be necessary........
+        #  => might want to do this stuff in the new repo...
+
         df_frame_index = pd.read_csv(frame_index_path)
 
         if os.path.exists(state_path):
@@ -772,23 +776,244 @@ class DroneStateFrameMean(GroundTruthGenerator):
         df_state.to_csv(state_path, index=False)
 
 
-class DroneStateMPC(GroundTruthGenerator):
+class DroneStateOriginal(GroundTruthGenerator):
 
-    # TODO: might have to separate the drone state stuff into different files (similar to the control GT)
+    # TODO: maybe rename this script, since this isn't technically used as ground-truth?
+
+    NAME = "drone_state_original"
+
+    def get_gt_info(self, run_dir, subject, run):
+        # get the path to the index directory
+        index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
+        frame_index_path = os.path.join(index_dir, "frame_index.csv")
+        state_index_path = os.path.join(index_dir, "state.csv")
+        state_path = os.path.join(index_dir, f"{self.__class__.NAME}.csv")
+
+        df_frame_index = pd.read_csv(frame_index_path)
+
+        if os.path.exists(state_index_path):
+            df_state_index = pd.read_csv(state_index_path)
+        else:
+            df_state_index = df_frame_index.copy()
+            df_state_index = df_state_index[["frame", "subject", "run"]]
+
+        # TODO: this is a horrible way of doing things, should probably be in constants.py or something
+        oc = [
+            "position_x [m]", "position_y [m]", "position_z [m]",
+            "velocity_x [m/s]", "velocity_y [m/s]", "velocity_z [m/s]",
+            "acceleration_x [m/s/s]", "acceleration_y [m/s/s]", "acceleration_z [m/s/s]",
+            "rotation_w [quaternion]", "rotation_x [quaternion]", "rotation_y [quaternion]", "rotation_z [quaternion]",
+            "euler_x [rad]", "euler_y [rad]", "euler_z [rad]",
+            "omega_x [rad/s]", "omega_y [rad/s]", "omega_z [rad/s]",
+            "drone_velocity_x [m/s]", "drone_velocity_y [m/s]", "drone_velocity_z [m/s]",
+            "drone_acceleration_x [m/s/s]", "drone_acceleration_y [m/s/s]", "drone_acceleration_z [m/s/s]",
+            "drone_omega_x [rad]", "drone_omega_y [rad]", "drone_omega_z [rad]",
+        ]
+        c = [
+            "position_x", "position_y", "position_z",
+            "velocity_x", "velocity_y", "velocity_z",
+            "acceleration_x", "acceleration_y", "acceleration_z",
+            "rotation_w", "rotation_x", "rotation_y", "rotation_z",
+            "euler_x", "euler_y", "euler_z",
+            "omega_x", "omega_y", "omega_z",
+            "drone_velocity_x", "drone_velocity_y", "drone_velocity_z",
+            "drone_acceleration_x", "drone_acceleration_y", "drone_acceleration_z",
+            "drone_omega_x", "drone_omega_y", "drone_omega_z",
+        ]
+        if os.path.exists(state_path):
+            df_state = pd.read_csv(state_path)
+            df_state = df_state.rename(
+                {c: rc for c, rc in zip(oc, c)}, axis=1)  # not sure why this is here...
+        else:
+            df_state = df_frame_index.copy()
+            df_state = df_state[["frame"]]
+            df_state.columns = [c[0]]
+            df_state[c[0]] = np.nan
+            for col in c:
+                if col not in df_state.columns:
+                    df_state[col] = np.nan
+
+        if self.__class__.NAME not in df_state_index.columns:
+            df_state_index[self.__class__.NAME] = -1
+            for col in c:
+                if col not in df_state.columns:
+                    df_state[col] = np.nan
+
+        # in principle, need only subject and run to identify where to put the new info...
+        # e.g. track name is more of a property to filter on...
+        match_index = (df_state_index["subject"] == subject) & (df_state_index["run"] == run)
+
+        return df_state_index, df_state, state_index_path, state_path, match_index, c, oc
+
+    def compute_gt(self, run_dir):
+        if not os.path.exists(os.path.join(run_dir, "trajectory.csv")):
+            print("WARNING: No original trajectory found for directory '{}'.".format(run_dir))
+            return
+
+        start = time()
+
+        print("\nProcessing '{}'.".format(run_dir))
+
+        # get info about the current run
+        run_info = parse_run_info(run_dir)
+        subject = run_info["subject"]
+        run = run_info["run"]
+
+        # get the ground-truth info
+        df_state_index, df_state, state_index_path, state_path, match_index, c, oc = self.get_gt_info(run_dir, subject, run)
+
+        # define paths
+        df_screen_path = os.path.join(run_dir, "screen_timestamps.csv")
+        df_traj_path = os.path.join(run_dir, "trajectory.csv")
+
+        # load dataframes
+        df_screen = pd.read_csv(df_screen_path)
+        df_traj = pd.read_csv(df_traj_path)
+
+        # can't be immediately selected here, since the column names don't match
+        df_traj = df_traj.rename({or_c: new_c for or_c, new_c in zip(oc, c)}, axis=1)
+        df_traj = df_traj[["time-since-start [s]"] + c]
+
+        # TODO: this is basically what I need for the MPC stuff, but not the original trajectory
+        #  => should just loop through screen_timestamps and get the closest state...
+
+        # add information about control GT being available to frame-wise screen info
+        df_state_index.loc[match_index, self.__class__.NAME] = 1
+        df_state_columns = df_state.copy()[c]
+
+        # add the actual states
+        for _, row in tqdm(list(df_screen.iterrows())):
+            # sample from the trajectory
+            row_idx = df_traj["time-since-start [s]"] <= row["ts"]
+            if all(~row_idx):
+                index = 0
+            else:
+                index = df_traj.loc[row_idx, "time-since-start [s]"].idxmax()
+            df_state_columns.iloc[match_index & (df_state_index["frame"] == row["frame"])] = df_traj[c].iloc[index]
+        df_state[c] = df_state_columns[c]
+
+        # save to CSV with updated data
+        df_state_index.to_csv(state_index_path, index=False)
+        df_state.to_csv(state_path, index=False)
+
+        print("Processed '{}'. in {:.2f}s".format(run_dir, time() - start))
+
+
+class DroneStateMPC(GroundTruthGenerator):
 
     NAME = "drone_state_mpc_{}"
 
     def __init__(self, config):
-        super().__init__(config)
+        super(DroneStateMPC, self).__init__(config)
 
         self.command_frequency = config["mpc_command_frequency"]
         self.class_name = self.__class__.NAME.format(self.command_frequency)
 
     def get_gt_info(self, run_dir, subject, run):
-        pass
+        # get the path to the index directory
+        index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
+        frame_index_path = os.path.join(index_dir, "frame_index.csv")
+        state_index_path = os.path.join(index_dir, "state.csv")
+        state_path = os.path.join(index_dir, f"{self.class_name}.csv")
+
+        df_frame_index = pd.read_csv(frame_index_path)
+
+        if os.path.exists(state_index_path):
+            df_state_index = pd.read_csv(state_index_path)
+        else:
+            df_state_index = df_frame_index.copy()
+            df_state_index = df_state_index[["frame", "subject", "run"]]
+
+        oc = [
+            "position_x [m]", "position_y [m]", "position_z [m]",
+            "velocity_x [m/s]", "velocity_y [m/s]", "velocity_z [m/s]",
+            "acceleration_x [m/s/s]", "acceleration_y [m/s/s]", "acceleration_z [m/s/s]",
+            "rotation_w [quaternion]", "rotation_x [quaternion]", "rotation_y [quaternion]", "rotation_z [quaternion]",
+            "omega_x [rad/s]", "omega_y [rad/s]", "omega_z [rad/s]",
+        ]
+        c = [
+            "position_x", "position_y", "position_z",
+            "velocity_x", "velocity_y", "velocity_z",
+            "acceleration_x", "acceleration_y", "acceleration_z",
+            "rotation_w", "rotation_x", "rotation_y", "rotation_z",
+            "omega_x", "omega_y", "omega_z",
+        ]
+        if os.path.exists(state_path):
+            df_state = pd.read_csv(state_path)
+            df_state = df_state.rename(
+                {c: rc for c, rc in zip(oc, c)}, axis=1)  # not sure why this is here...
+        else:
+            df_state = df_frame_index.copy()
+            df_state = df_state[["frame"]]
+            df_state.columns = [c[0]]
+            df_state[c[0]] = np.nan
+            for col in c:
+                if col not in df_state.columns:
+                    df_state[col] = np.nan
+
+        if self.class_name not in df_state_index.columns:
+            df_state_index[self.class_name] = -1
+            for col in c:
+                if col not in df_state.columns:
+                    df_state[col] = np.nan
+
+        # in principle, need only subject and run to identify where to put the new info...
+        # e.g. track name is more of a property to filter on...
+        match_index = (df_state_index["subject"] == subject) & (df_state_index["run"] == run)
+
+        return df_state_index, df_state, state_index_path, state_path, match_index, c, oc
 
     def compute_gt(self, run_dir):
-        pass
+        if not os.path.exists(os.path.join(run_dir, "trajectory_mpc_{}.csv".format(self.command_frequency))):
+            print("WARNING: No MPC trajectory found for directory '{}'.".format(run_dir))
+            return
+
+        start = time()
+
+        print("\nProcessing '{}'.".format(run_dir))
+
+        # get info about the current run
+        run_info = parse_run_info(run_dir)
+        subject = run_info["subject"]
+        run = run_info["run"]
+
+        # get the ground-truth info
+        df_state_index, df_state, control_gt_path, control_measurements_path, match_index, c, oc = \
+            self.get_gt_info(run_dir, subject, run)
+
+        # define paths
+        df_screen_path = os.path.join(run_dir, "screen_timestamps.csv")
+        df_traj_path = os.path.join(run_dir, "trajectory_mpc_{}.csv".format(self.command_frequency))
+
+        # load dataframes
+        df_screen = pd.read_csv(df_screen_path)
+        df_traj = pd.read_csv(df_traj_path)
+
+        # can be immediately selected here, since the column names match
+        df_traj = df_traj.rename({or_c: new_c for or_c, new_c in zip(oc, c)}, axis=1)
+        # df_traj = df_traj[["time-since-start [s]"] + c]
+        df_traj = df_traj[c]  # IS THAT STILL THE CASE? NO, THIS ISN'T ABOUT COMMANDS AFTER ALL
+
+        # add information about control GT being available to frame-wise screen info
+        # TODO: this still relies on everything being recorded in 60FPS/matching screen_timestamps.csv,
+        #  maybe this should be changed at some point to e.g. have higher frequency state estimates
+        min_length = min(len(df_screen.index), len(df_traj.index))
+
+        df_state_index.loc[match_index, self.class_name] = df_state_index.loc[match_index, "frame"].isin(
+            df_screen.loc[:min_length, "frame"]).astype(int).values
+        df_state_columns = df_state.copy()[c]
+
+        # gather the actual data
+        for (_, row), f in tqdm(zip(list(df_traj.iterrows())[:min_length],
+                                    df_screen["frame"].iloc[:min_length]), total=min_length):
+            df_state_columns.iloc[match_index & (df_state_index["frame"] == f)] = row.values
+        df_state[c] = df_state_columns[c]
+
+        # save to CSV with updated data
+        df_state_index.to_csv(control_gt_path, index=False)
+        df_state.to_csv(control_measurements_path, index=False)
+
+        print("Processed '{}'. in {:.2f}s".format(run_dir, time() - start))
 
 
 def resolve_gt_class(ground_truth_type: str) -> Type[GroundTruthGenerator]:
@@ -804,6 +1029,8 @@ def resolve_gt_class(ground_truth_type: str) -> Type[GroundTruthGenerator]:
         return RandomGazeGT
     elif ground_truth_type == "drone_state_frame_mean":
         return DroneStateFrameMean
+    elif ground_truth_type == "drone_state_original":
+        return DroneStateOriginal
     elif ground_truth_type == "drone_state_mpc":
         return DroneStateMPC
     elif ground_truth_type == "optical_flow":
@@ -834,8 +1061,8 @@ if __name__ == "__main__":
                         help="The method to use to compute the ground-truth.")
     parser.add_argument("-gtt", "--ground_truth_type", type=str, default="moving_window_frame_mean_gt",
                         choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt", "drone_control_mpc_gt",
-                                 "drone_control_frame_mean_raw_gt" "random_gaze_gt", "drone_state_frame_mean",
-                                 "drone_state_mpc", "optical_flow"],
+                                 "drone_control_frame_mean_raw_gt", "random_gaze_gt", "drone_state_frame_mean",
+                                 "drone_state_original", "drone_state_mpc", "optical_flow"],
                         help="The method to use to compute the ground-truth.")
     parser.add_argument("-mcf", "--mpc_command_frequency", type=int, default=20,
                         help="Frequency at which control inputs were computed for MPC drone control GT generation .")

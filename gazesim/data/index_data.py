@@ -11,6 +11,11 @@ def add_frames(data, df_screen_ts, **kwargs):
     return data
 
 
+def add_time_stamps(data, df_screen_ts, **kwargs):
+    data["time_stamp"].extend(list(df_screen_ts["ts"].values))
+    return data
+
+
 def add_subject(data, run_dir, num_frames, **kwargs):
     subject_number = parse_run_info(run_dir)["subject"]
     if subject_number is None:
@@ -236,6 +241,7 @@ def append(args):
         "subject": add_subject,
         "run": add_run,
         "track_name": add_track_name,
+        "ts": add_time_stamps,
         "rgb_available": add_rgb_available,
         "gaze_measurement_available": add_gaze_measurement_available,
         "drone_measurement_available": add_drone_measurement_available,
@@ -247,6 +253,7 @@ def append(args):
         "frame": ["frame"],
         "subject": ["subject"],
         "run": ["run"],
+        "ts": ["time_stamp"],
         "track_name": ["track_name"],
         "rgb_available": ["rgb_available"],
         "gaze_measurement_available": ["gaze_measurement_available"],
@@ -264,7 +271,7 @@ def append(args):
     #  => should be able to use df.update(other) for that
 
     # loop over the given properties that should be added
-    for run_dir in tqdm(iterate_directories(args.data_root, ["flat", "wave"])[:1]):
+    for run_dir in tqdm(iterate_directories(args.data_root, ["flat", "wave"])):
         # load relevant dataframes
         df_screen_ts = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
         df_gaze = pd.read_csv(os.path.join(run_dir, "gaze_on_surface.csv"))

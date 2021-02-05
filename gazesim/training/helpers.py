@@ -3,7 +3,7 @@ import torch
 from gazesim.training.loggers import ControlLogger, AttentionLogger, AttentionAndControlLogger, CVControlLogger
 from gazesim.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset, StateToControlDataset
 from gazesim.data.datasets import ImageToAttentionAndControlDataset, StackedImageAndStateToControlDataset, ImageToAttentionDataset
-from gazesim.data.datasets import StackedImageToAttentionDataset, StackedImageToControlDataset, DrEYEveDataset
+from gazesim.data.datasets import StackedImageToAttentionDataset, StackedImageToControlDataset, DrEYEveDataset, DDADataset
 from gazesim.models.c3d import C3DRegressor, C3DStateRegressor
 from gazesim.models.codevilla import Codevilla, Codevilla300, CodevillaSkip, CodevillaMultiHead, CodevillaDualBranch, CodevillaMultiHeadNoState
 from gazesim.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetStateLargerRegressor, StateOnlyRegressor, ResNetLargerRegressor
@@ -11,6 +11,7 @@ from gazesim.models.resnet import ResNetLargerAttentionAndControl, ResNetAttenti
 from gazesim.models.dreyeve import SaliencyBranch
 from gazesim.models.rnn import ResNetLargerGRURegressor
 from gazesim.models.ue4sim import UE4SimRegressor
+from gazesim.models.dda import DDAModel
 from gazesim.models.utils import image_log_softmax
 
 
@@ -34,6 +35,7 @@ def resolve_model_class(model_name):
         "resnet_att": ResNetAttention,
         "resnet_larger_gru": ResNetLargerGRURegressor,
         "ue4sim": UE4SimRegressor,
+        "dda": DDAModel,
     }[model_name]
 
 
@@ -53,6 +55,7 @@ def get_outputs(dataset_name):
         "ImageToAttentionAndControlDataset": ["output_attention", "output_control"],
         "ImageToAttentionDataset": ["output_attention"],
         "DrEYEveDataset": ["output_attention", "output_attention_crop"],
+        "DDADataset": ["output_control"],
         # TODO: this might actually depend on more than just this  (e.g. if some dreyeve architecture is used)
     }[dataset_name]
 
@@ -69,6 +72,7 @@ def get_valid_losses(dataset_name):
         "ImageToAttentionAndControlDataset": {"output_attention": ["kl"], "output_control": ["mse"]},
         "ImageToAttentionDataset": {"output_attention": ["kl"]},
         "DrEYEveDataset": {"output_attention": ["kl", "mse"], "output_attention_crop": ["kl", "mse"]},
+        "DDADataset": {"output_control": ["mse"]},
     }[dataset_name]
 
 
@@ -116,6 +120,7 @@ def resolve_dataset_name(model_name):
         "resnet_att": "ImageToAttentionDataset",
         "resnet_larger_gru": "StackedImageToControlDataset",
         "ue4sim": "ImageToControlDataset",
+        "dda": "DDADataset",
     }[model_name]
 
 
@@ -130,6 +135,7 @@ def resolve_dataset_class(dataset_name):
         "ImageToAttentionAndControlDataset": ImageToAttentionAndControlDataset,
         "ImageToAttentionDataset": ImageToAttentionDataset,
         "DrEYEveDataset": DrEYEveDataset,
+        "DDADataset": DDADataset,
     }[dataset_name]
 
 
@@ -171,6 +177,7 @@ def resolve_resize_parameters(model_name):
         "resnet_att": 300,
         "resnet_larger_gru": 150,
         "ue4sim": (180, 320),
+        "dda": None,
     }[model_name]
 
 
@@ -186,4 +193,5 @@ def resolve_gt_name(dataset_name):
         "ImageToAttentionAndControlDataset": ["moving_window_frame_mean_gt", "drone_control_frame_mean_gt"],
         "ImageToAttentionDataset": "moving_window_frame_mean_gt",
         "DrEYEveDataset": "moving_window_frame_mean_gt",
+        "DDADataset": "drone_control_frame_mean_raw_gt",
     }[dataset_name]
