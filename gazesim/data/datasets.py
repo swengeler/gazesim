@@ -428,6 +428,8 @@ class FeatureTrackDataset(StackedGenericDataset):
         feature_track_stack = []
         for in_stack_idx, (_, row) in enumerate(current_stack_df.iterrows()):
             feature_tracks = self.feature_track_readers[current_run_dir]["arr_{}".format(row["frame"])]
+            # TODO: if FPS subsampling is supposed to work here, need to use the original frame I think...
+            #  but that would be conceptually erroneous
 
             # sample from the feature tracks
             # 3 cases:
@@ -1256,7 +1258,7 @@ if __name__ == "__main__":
         "attention_ground_truth": "moving_window_frame_mean_gt",
         "control_ground_truth": "drone_control_frame_mean_gt",
         "resize": 150,
-        "stack_size": 8,
+        "stack_size": 1,
         "split_config": resolve_split_index_path(13, data_root=os.getenv("GAZESIM_ROOT")),
         "frames_per_second": 2,
         "no_normalisation": True,
@@ -1280,15 +1282,14 @@ if __name__ == "__main__":
     }
 
     # dataset = DrEYEveDataset(test_config, "train")
-    # dataset = ImageToControlDataset(test_config, "train")
+    dataset = ImageToControlDataset(test_config, "train")
     # dataset = StackedImageToControlDataset(test_config, "train")
-    dataset = DDADataset(test_config, "train")
+    # dataset = DDADataset(test_config, "train")
     print("dataset size:", len(dataset))
 
-    from tqdm import tqdm
-
-    for d in tqdm(dataset):
-        pass
+    # from tqdm import tqdm
+    # for d in tqdm(dataset):
+    #     pass
 
     sample = dataset[len(dataset) - 1]
     print("sample:", sample.keys())

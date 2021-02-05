@@ -255,6 +255,7 @@ def create_split_index(config):
     df_gaze_gt = pd.read_csv(gaze_gt_path).drop(["frame", "subject", "run"], axis=1)
     df_control_gt = pd.read_csv(control_gt_path).drop(["frame", "subject", "run"], axis=1)
     df_frame_index = pd.concat([df_frame_index, df_gaze_gt, df_control_gt], axis=1)
+    # TODO: different states as well? so far handled by drone_measurement_available, which might be different for MPC?
 
     # create the dataframe to save the split information into and populate it with "none" values
     df_split = df_frame_index[["frame"]].copy()
