@@ -438,7 +438,7 @@ class FeatureTrackDataset(StackedGenericDataset):
             if feature_tracks.shape[0] == 0:
                 # no features at all
                 # => everything needs to be 0 or something like that probably
-                feature_tracks = np.zeros((self.feature_track_num, 5))
+                feature_tracks = np.zeros((self.feature_track_num, 6))
             else:
                 num_missing = self.feature_track_num - feature_tracks.shape[0]
                 if num_missing > 0:
@@ -457,6 +457,9 @@ class FeatureTrackDataset(StackedGenericDataset):
         if self.stack_size == 1:
             feature_tracks = torch.from_numpy(feature_track_stack[0]).float()
         else:
+            shapes = [tuple(fts.shape) for fts in feature_track_stack]
+            if len(set(shapes)) != 1:
+                print(shapes)
             feature_tracks = np.stack(feature_track_stack, axis=0)
             feature_tracks = torch.from_numpy(feature_tracks).float()
             # TODO: might have to reorder dimensions for DDA input
@@ -1253,8 +1256,8 @@ if __name__ == "__main__":
         "attention_ground_truth": "moving_window_frame_mean_gt",
         "control_ground_truth": "drone_control_frame_mean_gt",
         "resize": 150,
-        "stack_size": 1,
-        "split_config": resolve_split_index_path(11, data_root=os.getenv("GAZESIM_ROOT")),
+        "stack_size": 8,
+        "split_config": resolve_split_index_path(13, data_root=os.getenv("GAZESIM_ROOT")),
         "frames_per_second": 2,
         "no_normalisation": True,
         "video_data_augmentation": False,
@@ -1273,13 +1276,19 @@ if __name__ == "__main__":
         "reference_variables": ["rotation_w", "rotation_x", "rotation_y", "rotation_z"],
         "state_estimate_name": "drone_state_original",
         "state_estimate_variables": ["rotation_w", "rotation_x", "rotation_y", "rotation_z"],
+        "state_estimate_data_augmentation": False,
     }
 
     # dataset = DrEYEveDataset(test_config, "train")
-    dataset = ImageToControlDataset(test_config, "train")
+    # dataset = ImageToControlDataset(test_config, "train")
     # dataset = StackedImageToControlDataset(test_config, "train")
-    # dataset = DDADataset(test_config, "train")
+    dataset = DDADataset(test_config, "train")
     print("dataset size:", len(dataset))
+
+    from tqdm import tqdm
+
+    for d in tqdm(dataset):
+        pass
 
     sample = dataset[len(dataset) - 1]
     print("sample:", sample.keys())
