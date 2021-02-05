@@ -144,7 +144,7 @@ def resolve_logger_class(dataset_name, mode):
     if "AttentionAndControl" in dataset_name:
         if mode == "train":
             return AttentionAndControlLogger
-    elif "Control" in dataset_name:
+    elif "Control" in dataset_name or "DDA" in dataset_name:
         if mode == "train":
             return ControlLogger
         elif mode == "cv":
