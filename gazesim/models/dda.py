@@ -59,6 +59,7 @@ class DDAModel(LoadableModule):
             nn.Linear(in_features=64, out_features=32),
             nn.LeakyReLU(negative_slope=1e-2),
             nn.Linear(in_features=32, out_features=4),  # TODO: activation?
+            DummyLayer() if config["no_control_activation"] else ControlActivationLayer(),
         )
 
     def forward(self, x):

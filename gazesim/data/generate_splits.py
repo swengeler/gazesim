@@ -271,7 +271,6 @@ def create_split_index(config):
     }
     properties.update(config["filter"])
     df_frame_index = filter_by_property_improved(df_frame_index, properties, config["filter_or"])
-    # TODO: should include the ability to have OR condition (right now only AND)
 
     # create the splits
     train_index, val_index, test_index, data_index = generate_splits(df_frame_index, config, return_data_index=True)
@@ -362,6 +361,19 @@ if __name__ == "__main__":
                         help="Properties and their values to filter by in the format property_name:value. "
                              "Uses OR instead of AND (-f/--filter) as condition. Multiple OR conditions "
                              "can be specified by repeating the flag.")
+
+    """
+    parser.add_argument("-cm", "--compose_manually", action="store_true",
+                        help="If not specified, default index files are loaded and data is filtered "
+                             "on some default columns. When specified --index_files, --out_name, and "
+                             "--rename_splits should/can be specified.")
+    parser.add_argument("-cm", "--compose_manually", action="store_true",
+                        help="If not specified, default index files are loaded and data is filtered "
+                             "on some default columns. When specified --index_files, --out_name, and "
+                             "--rename_splits should/can be specified.")
+    # TODO: should maybe just have functionality to select some data w/o any splitting and just have a 0-1 index
+    # TODO: maybe option to only do rgb_available "split"?
+    """
 
     # parse the arguments
     arguments = parser.parse_args()

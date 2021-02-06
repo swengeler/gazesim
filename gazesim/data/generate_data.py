@@ -9,7 +9,7 @@ from time import time
 from gazesim.data.utils import iterate_directories, generate_gaussian_heatmap, filter_by_screen_ts, parse_run_info, pair
 
 
-class GroundTruthGenerator:
+class DataGenerator:
 
     def __init__(self, config):
         self.run_dir_list = iterate_directories(config["data_root"], track_names=config["track_name"])
@@ -32,7 +32,7 @@ class GroundTruthGenerator:
             self.compute_gt(rd)
 
 
-class MovingWindowFrameMeanGT(GroundTruthGenerator):
+class MovingWindowFrameMeanGT(DataGenerator):
 
     NAME = "moving_window_frame_mean_gt"
 
@@ -161,7 +161,7 @@ class MovingWindowFrameMeanGT(GroundTruthGenerator):
         print("Saved moving window ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
-class RandomGazeGT(GroundTruthGenerator):
+class RandomGazeGT(DataGenerator):
 
     NAME = "random_gaze_gt"
 
@@ -301,7 +301,107 @@ class RandomGazeGT(GroundTruthGenerator):
         print("Saved random gaze ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
-class OpticalFlowFarneback(GroundTruthGenerator):
+class PredictedGazeGT(DataGenerator):
+
+    NAME = "predicted_gaze_gt"
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.video_name = config["video_name"]
+
+        # TODO: best thing to do might be to load a model, get the dataset type etc., construct a dataset
+        #  with an "artificial" config (could e.g. change in dataset so if config["split_config"] is already
+        #  a dataframe, it just uses that), that is constructed from the frame_index (where rgb_available == True)
+        #  and then get the indices for each video and load that shit from the dataset, construct batches (maybe)
+        #  and put it through whichever network is being loaded
+        # => can we iterate with dataloader? probs not, since we need subindex right?
+        #    => could use batch_sampler argument?
+        # if there are stacks, should probably just insert black frames
+        # => how to check this, difference between len(dataset) and num_frames
+
+    def get_gt_info(self, run_dir, subject, run):
+        # probably just ignore this, since anything where RGB is available is pretty much good?
+        # get the path to the index directory
+        index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
+        frame_index_path = os.path.join(index_dir, "frame_index.csv")
+        gaze_gt_path = os.path.join(index_dir, "gaze_gt.csv")
+
+        df_frame_index = pd.read_csv(frame_index_path)
+
+        if os.path.exists(gaze_gt_path):
+            df_gaze_gt = pd.read_csv(gaze_gt_path)
+        else:
+            df_gaze_gt = df_frame_index.copy()
+            df_gaze_gt = df_gaze_gt[["frame", "subject", "run"]]
+
+        if self.__class__.NAME not in df_gaze_gt.columns:
+            df_gaze_gt[self.__class__.NAME] = -1
+
+        # in principle, need only subject and run to identify where to put the new info...
+        # e.g. track name is more of a property to filter on...
+        match_index = (df_gaze_gt["subject"] == subject) & (df_gaze_gt["run"] == run)
+
+        return df_gaze_gt, gaze_gt_path, match_index
+
+    def compute_gt(self, run_dir):
+        start = time()
+
+        # get info about the current run
+        # TODO: probably not needed
+        run_info = parse_run_info(run_dir)
+        subject = run_info["subject"]
+        run = run_info["run"]
+
+        # initiate video capture and writer
+        video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
+        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
+        num_frames = int(num_frames)
+
+        if not (w == 800 and h == 600):
+            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+            return
+
+        # writer is only initialised after making sure that everything else works
+        video_writer = cv2.VideoWriter(
+            os.path.join(run_dir, f"{self.__class__.NAME}.mp4"),
+            int(fourcc),
+            fps,
+            (int(w), int(h)),
+            True
+        )
+
+        # loop through all frames and compute the optical flow
+        _, previous_frame = video_capture.read()
+        video_writer.write(np.zeros_like(previous_frame))
+        hsv_representation = np.zeros_like(previous_frame)
+        hsv_representation[..., 1] = 255
+        previous_frame = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
+        # TODO: should there be some way to indicate whether optical flow is available? e.g. in frame_index?
+        for frame_idx in tqdm(range(1, num_frames), disable=False):
+            _, current_frame = video_capture.read()
+            current_frame = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
+
+            optical_flow = cv2.calcOpticalFlowFarneback(previous_frame, current_frame, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+
+            magnitude, angle = cv2.cartToPolar(optical_flow[..., 0], optical_flow[..., 1])
+            hsv_representation[..., 0] = angle * 180 / np.pi / 2
+            hsv_representation[..., 2] = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
+            rgb_representation = cv2.cvtColor(hsv_representation, cv2.COLOR_HSV2BGR)
+
+            # save the resulting frame
+            video_writer.write(rgb_representation)
+
+            previous_frame = current_frame
+
+        video_writer.release()
+
+        print("Saved optical flow for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
+
+
+class OpticalFlowFarneback(DataGenerator):
 
     NAME = "optical_flow_farneback"
 
@@ -389,7 +489,7 @@ class OpticalFlowFarneback(GroundTruthGenerator):
         print("Saved optical flow for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
-class DroneControlFrameMeanGT(GroundTruthGenerator):
+class DroneControlFrameMeanGT(DataGenerator):
 
     NAME = "drone_control_frame_mean_gt"
 
@@ -481,7 +581,7 @@ class DroneControlFrameMeanGT(GroundTruthGenerator):
         df_control_measurements.to_csv(control_measurements_path, index=False)
 
 
-class DroneControlMPCGT(GroundTruthGenerator):
+class DroneControlMPCGT(DataGenerator):
 
     NAME = "drone_control_mpc_{}_gt"
 
@@ -606,7 +706,7 @@ class DroneControlMPCGT(GroundTruthGenerator):
         print("Processed '{}'. in {:.2f}s".format(run_dir, time() - start))
 
 
-class DroneControlFrameMeanRawGT(GroundTruthGenerator):
+class DroneControlFrameMeanRawGT(DataGenerator):
 
     NAME = "drone_control_frame_mean_raw_gt"
 
@@ -698,7 +798,7 @@ class DroneControlFrameMeanRawGT(GroundTruthGenerator):
         df_control_measurements.to_csv(control_measurements_path, index=False)
 
 
-class DroneStateFrameMean(GroundTruthGenerator):
+class DroneStateFrameMean(DataGenerator):
 
     # TODO: maybe rename this script, since this isn't technically used as ground-truth?
 
@@ -776,7 +876,7 @@ class DroneStateFrameMean(GroundTruthGenerator):
         df_state.to_csv(state_path, index=False)
 
 
-class DroneStateOriginal(GroundTruthGenerator):
+class DroneStateOriginal(DataGenerator):
 
     # TODO: maybe rename this script, since this isn't technically used as ground-truth?
 
@@ -899,7 +999,7 @@ class DroneStateOriginal(GroundTruthGenerator):
         print("Processed '{}'. in {:.2f}s".format(run_dir, time() - start))
 
 
-class DroneStateMPC(GroundTruthGenerator):
+class DroneStateMPC(DataGenerator):
 
     NAME = "drone_state_mpc_{}"
 
@@ -1016,26 +1116,27 @@ class DroneStateMPC(GroundTruthGenerator):
         print("Processed '{}'. in {:.2f}s".format(run_dir, time() - start))
 
 
-def resolve_gt_class(ground_truth_type: str) -> Type[GroundTruthGenerator]:
-    if ground_truth_type == "moving_window_frame_mean_gt":
+def resolve_gt_class(data_type: str) -> Type[DataGenerator]:
+    if data_type == "moving_window_frame_mean_gt":
         return MovingWindowFrameMeanGT
-    elif ground_truth_type == "drone_control_frame_mean_gt":
+    elif data_type == "drone_control_frame_mean_gt":
         return DroneControlFrameMeanGT
-    elif ground_truth_type == "drone_control_frame_mean_raw_gt":
+    elif data_type == "drone_control_frame_mean_raw_gt":
         return DroneControlFrameMeanRawGT
-    elif ground_truth_type == "drone_control_mpc_gt":
+    elif data_type == "drone_control_mpc_gt":
         return DroneControlMPCGT
-    elif ground_truth_type == "random_gaze_gt":
+    elif data_type == "random_gaze_gt":
         return RandomGazeGT
-    elif ground_truth_type == "drone_state_frame_mean":
+    elif data_type == "drone_state_frame_mean":
         return DroneStateFrameMean
-    elif ground_truth_type == "drone_state_original":
+    elif data_type == "drone_state_original":
         return DroneStateOriginal
-    elif ground_truth_type == "drone_state_mpc":
+    elif data_type == "drone_state_mpc":
         return DroneStateMPC
-    elif ground_truth_type == "optical_flow":
+    elif data_type == "optical_flow":
         return OpticalFlowFarneback
-    return GroundTruthGenerator
+    # TODO: attention prediction generator
+    return DataGenerator
 
 
 def main(args):
@@ -1045,7 +1146,7 @@ def main(args):
         for r_idx, r in enumerate(iterate_directories(config["data_root"], track_names=config["track_name"])):
             print(r_idx, ":", r)
     else:
-        generator = resolve_gt_class(config["ground_truth_type"])(config)
+        generator = resolve_gt_class(config["data_type"])(config)
         generator.generate()
 
 
@@ -1059,23 +1160,31 @@ if __name__ == "__main__":
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
     parser.add_argument("-tn", "--track_name", type=str, nargs="+", default=["flat", "wave"], choices=["flat", "wave"],
                         help="The method to use to compute the ground-truth.")
-    parser.add_argument("-gtt", "--ground_truth_type", type=str, default="moving_window_frame_mean_gt",
+    parser.add_argument("-dt", "--data_type", type=str, default="moving_window_frame_mean_gt",
                         choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt", "drone_control_mpc_gt",
                                  "drone_control_frame_mean_raw_gt", "random_gaze_gt", "drone_state_frame_mean",
                                  "drone_state_original", "drone_state_mpc", "optical_flow"],
                         help="The method to use to compute the ground-truth.")
-    parser.add_argument("-mcf", "--mpc_command_frequency", type=int, default=20,
-                        help="Frequency at which control inputs were computed for MPC drone control GT generation .")
     parser.add_argument("-di", "--directory_index", type=pair, default=None)
     parser.add_argument("-rs", "--random_seed", type=int, default=127,
                         help="The random seed.")
     parser.add_argument("-se", "--skip_existing", action="store_true")
     parser.add_argument("-pdo", "--print_directories_only", action="store_true")
 
-    # arguments only used for moving_window
+    # arguments only used for specific data types
     parser.add_argument("--mw_size", type=int, default=25,
                         help="Size of the temporal window in frames from which the "
                              "ground-truth for the current frame should be computed.")
+
+    parser.add_argument("-mcf", "--mpc_command_frequency", type=int, default=20,
+                        help="Frequency at which control inputs were computed for MPC drone control GT generation .")
+
+    parser.add_argument("-vn", "--video_name", type=str, default="screen",
+                        help="The name of the videos to use e.g. for computing feature track data.")
+    parser.add_argument("-mlp", "--model_load_path", type=str,
+                        help=".")
+    # FPS? if the input video is different, should use that FPS I guess
+    # batch size? would probably speed things up significantly
 
     # parse the arguments
     arguments = parser.parse_args()
