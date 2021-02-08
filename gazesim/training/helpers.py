@@ -172,12 +172,12 @@ def resolve_resize_parameters(model_name):
         "resnet_larger": 150,
         "resnet_state_larger": 150,
         "resnet_larger_att_ctrl": 300,
-        "state_only": None,
+        "state_only": -1,
         "dreyeve_branch": (112, 112),  # kind of a dummy value
         "resnet_att": 300,
         "resnet_larger_gru": 150,
         "ue4sim": (180, 320),
-        "dda": None,
+        "dda": -1,
     }[model_name]
 
 

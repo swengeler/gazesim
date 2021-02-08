@@ -10,7 +10,7 @@ setuptools.setup(
     version="0.0.1",
     author="Simon Wengeler",
     author_email="simon.wengeler@outlook.com",
-    description="Tools for working with the FPV Saliency (GazeSim) dataset",
+    description="Tools for working with the UZH-RPG FPV Saliency (GazeSim) dataset",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/swengeler/fpv_saliency_maps",

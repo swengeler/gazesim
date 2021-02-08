@@ -5,6 +5,7 @@ import torch
 
 from datetime import datetime
 from gazesim.data.utils import resolve_split_index_path
+from gazesim.data.constants import STATE_VARS_SHORTHAND_DICT
 from gazesim.training.helpers import resolve_dataset_name, resolve_resize_parameters, get_outputs, get_valid_losses, resolve_gt_name
 
 
@@ -61,19 +62,6 @@ COLUMNS_DRONE_ACC = ["DroneAccelerationX", "DroneAccelerationY", "DroneAccelerat
 COLUMNS_DRONE_ANG_VEL = ["DroneAngularX", "DroneAngularY", "DroneAngularZ"]
 COLUMNS_SHORTHAND_DICT = {"vel": COLUMNS_DRONE_VEL, "acc": COLUMNS_DRONE_ACC, "ang_vel": COLUMNS_DRONE_ANG_VEL}
 
-STATE_VARS_POS = ["position_x", "position_y", "position_z"]
-STATE_VARS_VEL = ["velocity_x", "velocity_y", "velocity_z"]
-STATE_VARS_ACC = ["acceleration_x", "acceleration_y", "acceleration_z"]
-STATE_VARS_ROT = ["rotation_w", "rotation_x", "rotation_y", "rotation_z"]
-STATE_VARS_OMEGA = ["omega_x", "omega_y", "omega_z"]
-STATE_VARS_SHORTHAND_DICT = {
-    "pos": STATE_VARS_POS,
-    "vel": STATE_VARS_VEL,
-    "acc": STATE_VARS_ACC,
-    "rot": STATE_VARS_ROT,
-    "omega": STATE_VARS_OMEGA,
-}
-
 
 def resolve_drone_state(specified, key):
     drone_states_all = [ds for sh, dsl in key.items() for ds in dsl]
@@ -126,7 +114,7 @@ def parse_config(args):
 
     # replace all the unspecified values with the default ones
     for k in config:
-        if config[k] is None:
+        if config[k] is None and k != "resize":
             config[k] = DEFAULT_VALUES[k]
 
     # add any missing values (e.g. from more recently added parameters)

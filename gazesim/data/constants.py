@@ -19,3 +19,23 @@ HIGH_LEVEL_COMMAND_LABEL = {
     "flat_none": 4,
     "wave_none": 4
 }
+
+STATE_VARS_POS = ["position_x", "position_y", "position_z"]
+STATE_VARS_VEL = ["velocity_x", "velocity_y", "velocity_z"]
+STATE_VARS_ACC = ["acceleration_x", "acceleration_y", "acceleration_z"]
+STATE_VARS_ROT = ["rotation_w", "rotation_x", "rotation_y", "rotation_z"]
+STATE_VARS_OMEGA = ["omega_x", "omega_y", "omega_z"]
+STATE_VARS_SHORTHAND_DICT = {
+    "pos": STATE_VARS_POS,
+    "vel": STATE_VARS_VEL,
+    "acc": STATE_VARS_ACC,
+    "rot": STATE_VARS_ROT,
+    "omega": STATE_VARS_OMEGA,
+}
+STATE_VARS_UNIT_SHORTHAND_DICT = {
+    "pos": "m",
+    "vel": "m/s",
+    "acc": "m/s/s",
+    "rot": "quaternion",
+    "omega": "rad/s",
+}

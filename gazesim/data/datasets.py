@@ -1258,9 +1258,9 @@ if __name__ == "__main__":
         "attention_ground_truth": "moving_window_frame_mean_gt",
         "control_ground_truth": "drone_control_frame_mean_gt",
         "resize": 150,
-        "stack_size": 1,
+        "stack_size": 8,
         "split_config": resolve_split_index_path(13, data_root=os.getenv("GAZESIM_ROOT")),
-        "frames_per_second": 2,
+        "frames_per_second": 60,
         "no_normalisation": True,
         "video_data_augmentation": False,
         "control_normalisation": True,
@@ -1282,14 +1282,14 @@ if __name__ == "__main__":
     }
 
     # dataset = DrEYEveDataset(test_config, "train")
-    dataset = ImageToControlDataset(test_config, "train")
+    # dataset = ImageToControlDataset(test_config, "train")
     # dataset = StackedImageToControlDataset(test_config, "train")
-    # dataset = DDADataset(test_config, "train")
+    dataset = DDADataset(test_config, "train")
     print("dataset size:", len(dataset))
 
-    # from tqdm import tqdm
-    # for d in tqdm(dataset):
-    #     pass
+    from tqdm import tqdm
+    for d in tqdm(dataset):
+        pass
 
     sample = dataset[len(dataset) - 1]
     print("sample:", sample.keys())
