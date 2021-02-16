@@ -316,7 +316,7 @@ class PredictedGazeGT(DataGenerator):
         self.batch_size = config["batch_size"]
 
         # load the model and config here
-        self.model, self.config = load_model(config["model_load_path"], gpu=0, return_config=True)
+        self.model, self.config = load_model(config["model_load_path"], gpu=config["gpu"], return_config=True)
         self.device = torch.device("cuda:{}".format(self.config["gpu"]) if
                                    torch.cuda.is_available() and
                                    self.config["gpu"] < torch.cuda.device_count() else "cpu")
@@ -339,6 +339,9 @@ class PredictedGazeGT(DataGenerator):
         #    => could use batch_sampler argument?
         # if there are stacks, should probably just insert black frames
         # => how to check this, difference between len(dataset) and num_frames
+
+    def get_gt_info(self, run_dir, subject, run):
+        pass
 
     def compute_gt(self, run_dir):
         start = time()
@@ -1203,6 +1206,7 @@ if __name__ == "__main__":
                         help=".")
     parser.add_argument("-b", "--batch_size", type=int, default=16,
                         help=".")
+    parser.add_argument("-g", "--gpu", type=int, default=0)
     # FPS? if the input video is different, should use that FPS I guess
     # batch size? would probably speed things up significantly
 
