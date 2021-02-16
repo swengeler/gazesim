@@ -28,7 +28,7 @@ COLUMN_DICT = {
 def extract_lap_trajectory(args):
     # load the correct drone.csv and laptimes.csv
     run_dir = os.path.join(args.data_root, run_info_to_path(args.subject, args.run, args.track_name))
-    inpath_drone = os.path.join(run_dir, "trajectory.csv")
+    inpath_drone = os.path.join(run_dir, "{}.csv".format(args.trajectory_name))
     inpath_laps = os.path.join(run_dir, "laptimes.csv")
     inpath_exp_traj = os.path.join(run_dir, "expected_trajectory.csv")
 
@@ -37,7 +37,7 @@ def extract_lap_trajectory(args):
 
     # select the data from the drone dataframe by the timestamps for the lap index in laptimes
     time_stamps = df_laps.loc[df_laps["lap"] == args.lap_index, ["ts_start", "ts_end"]].values[0]
-    df_traj = df_drone[df_drone["time-since-start [s]"].between(time_stamps[0], time_stamps[1])]
+    df_traj = df_drone[df_drone["time-since-start [s]"].between(time_stamps[0] - args.buffer, time_stamps[1])]
 
     # select columns and use new column headers
     # df_traj = df_traj[[co for co in COLUMN_DICT]]
@@ -47,11 +47,13 @@ def extract_lap_trajectory(args):
     df_traj["time-since-start [s]"] = df_traj["time-since-start [s]"] - df_traj["time-since-start [s]"].min()
 
     # save the data to specified path
-    file_name = "trajectory_s{:03d}_r{:02d}_{}_li{:02d}.csv".format(args.subject, args.run, args.track_name, args.lap_index)
+    if args.buffer > 0.0:
+        file_name = "{}_s{:03d}_r{:02d}_{}_li{:02d}_buffer{:02d}.csv".format(
+            args.trajectory_name, args.subject, args.run, args.track_name, args.lap_index, int(10 * args.buffer))
+    else:
+        file_name = "{}_s{:03d}_r{:02d}_{}_li{:02d}.csv".format(
+            args.trajectory_name, args.subject, args.run, args.track_name, args.lap_index)
     df_traj.to_csv(os.path.join(args.save_path, file_name), index=False)
-
-    # TODO: SHOULD TAKE THIS FROM THE GT FILE!!!!!!!!!!!!!!!!!!
-    #  => actually, should just take trajectory.csv!!!!!
 
 
 def extract_lap_video(args):
@@ -100,10 +102,12 @@ if __name__ == "__main__":
     parser.add_argument("-dr", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
     parser.add_argument("-md", "--mode", type=str, default="trajectory", choices=["trajectory", "video"])
+    parser.add_argument("-tjn", "--trajectory_name", type=str, default="trajectory")
     parser.add_argument("-s", "--subject", type=int)
     parser.add_argument("-r", "--run", type=int)
     parser.add_argument("-li", "--lap_index", type=int)
     parser.add_argument("-tn", "--track_name", type=str, default="flat")
+    parser.add_argument("-b", "--buffer", type=float, default=0.0)
     parser.add_argument("-sp", "--save_path", type=str, default=os.path.join(os.getenv("HOME"), "Downloads"))
 
     arguments = parser.parse_args()

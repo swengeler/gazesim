@@ -217,7 +217,7 @@ def parse_config(args):
                 drone_state_names.append(sn)
     config["drone_state_names"] = drone_state_names
     """
-    config["drone_state_names"] = resolve_drone_state(config["drone_state_names"], COLUMNS_SHORTHAND_DICT)
+    config["drone_state_names"] = resolve_drone_state(config["drone_state_names"], STATE_VARS_SHORTHAND_DICT)
 
     # TODO: might want to have some "resolve" function here as well, but for now leave as defaults
     # config["attention_ground_truth"] = resolve_gt_name(config["dataset_name"])

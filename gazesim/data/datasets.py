@@ -28,9 +28,14 @@ class GenericDataset(Dataset):
         self.index = pd.read_csv(os.path.join(self.data_root, "index", "frame_index.csv"))
 
         # get information about the data split (train/test/val)
-        split_index = pd.read_csv(config["split_config"] + ".csv")
-        if cv_split >= 0:
-            split_index = split_index[f"split_{cv_split}"]
+        if not isinstance(config["split_config"], str):
+            # this should only happen when some "custom" splits are supposed to be used,
+            # e.g. to "filter out" a single run to do predictions on that data
+            split_index = config["split_config"]
+        else:
+            split_index = pd.read_csv(config["split_config"] + ".csv")
+            if cv_split >= 0:
+                split_index = split_index[f"split_{cv_split}"]
         self.index["split"] = split_index
 
         # TODO: subsampling here! (however, still need to account for the indexing change when getting frames)
@@ -218,6 +223,7 @@ class ImageDataset(GenericDataset):
         #  they should be loaded at 60 FPS or less? => for now, just assume that only videos with the same
         #  frame rate (except for the attention output) are used
 
+        """
         with open(config["split_config"] + "_info.json", "r") as f:
             split_index_info = json.load(f)
         input_statistics = {}
@@ -235,6 +241,10 @@ class ImageDataset(GenericDataset):
                         "mean": STATISTICS["mean"][i],
                         "std": STATISTICS["std"][i]
                     }
+        """
+        input_statistics = {}
+        for i in self.video_input_names:
+            input_statistics[i] = {"mean": np.array([0, 0, 0]), "std": np.array([1, 1, 1])}
         self.video_input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(config["resize"]),
@@ -379,7 +389,7 @@ class StateDataset(GenericDataset):
         self.state_input_names = config["drone_state_names"]
 
         # load additional information and put it in the index
-        drone_state = pd.read_csv(os.path.join(self.data_root, "index", "state.csv"))
+        drone_state = pd.read_csv(os.path.join(self.data_root, "index", "drone_state_original.csv"))
         drone_state = drone_state.loc[self.sub_index]
         drone_state = drone_state.reset_index(drop=True)
         for col in self.state_input_names:

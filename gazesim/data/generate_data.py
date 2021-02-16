@@ -2,11 +2,15 @@ import os
 import numpy as np
 import pandas as pd
 import cv2
+import torch
 
 from typing import Type
 from tqdm import tqdm
 from time import time
 from gazesim.data.utils import iterate_directories, generate_gaussian_heatmap, filter_by_screen_ts, parse_run_info, pair
+from gazesim.training.helpers import resolve_dataset_class
+from gazesim.training.utils import load_model, to_device, to_batch
+from gazesim.models.utils import image_softmax, image_log_softmax
 
 
 class DataGenerator:
@@ -309,40 +313,32 @@ class PredictedGazeGT(DataGenerator):
         super().__init__(config)
 
         self.video_name = config["video_name"]
+        self.batch_size = config["batch_size"]
+
+        # load the model and config here
+        self.model, self.config = load_model(config["model_load_path"], gpu=0, return_config=True)
+        self.device = torch.device("cuda:{}".format(self.config["gpu"]) if
+                                   torch.cuda.is_available() and
+                                   self.config["gpu"] < torch.cuda.device_count() else "cpu")
+        self.model.to(self.device)
+
+        # modify the config
+        self.config["data_root"] = config["data_root"]
+
+        frame_index = pd.read_csv(os.path.join(config["data_root"], "index", "frame_index.csv"))
+        self.config["split_config"] = frame_index["track_name"] \
+                                      + "_" + frame_index["subject"].astype(str) \
+                                      + "_" + frame_index["run"].astype(str)
 
         # TODO: best thing to do might be to load a model, get the dataset type etc., construct a dataset
         #  with an "artificial" config (could e.g. change in dataset so if config["split_config"] is already
         #  a dataframe, it just uses that), that is constructed from the frame_index (where rgb_available == True)
-        #  and then get the indices for each video and load that shit from the dataset, construct batches (maybe)
+        #  and then get the indices for each video and load that stuff from the dataset, construct batches (maybe)
         #  and put it through whichever network is being loaded
         # => can we iterate with dataloader? probs not, since we need subindex right?
         #    => could use batch_sampler argument?
         # if there are stacks, should probably just insert black frames
         # => how to check this, difference between len(dataset) and num_frames
-
-    def get_gt_info(self, run_dir, subject, run):
-        # probably just ignore this, since anything where RGB is available is pretty much good?
-        # get the path to the index directory
-        index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
-        frame_index_path = os.path.join(index_dir, "frame_index.csv")
-        gaze_gt_path = os.path.join(index_dir, "gaze_gt.csv")
-
-        df_frame_index = pd.read_csv(frame_index_path)
-
-        if os.path.exists(gaze_gt_path):
-            df_gaze_gt = pd.read_csv(gaze_gt_path)
-        else:
-            df_gaze_gt = df_frame_index.copy()
-            df_gaze_gt = df_gaze_gt[["frame", "subject", "run"]]
-
-        if self.__class__.NAME not in df_gaze_gt.columns:
-            df_gaze_gt[self.__class__.NAME] = -1
-
-        # in principle, need only subject and run to identify where to put the new info...
-        # e.g. track name is more of a property to filter on...
-        match_index = (df_gaze_gt["subject"] == subject) & (df_gaze_gt["run"] == run)
-
-        return df_gaze_gt, gaze_gt_path, match_index
 
     def compute_gt(self, run_dir):
         start = time()
@@ -350,11 +346,10 @@ class PredictedGazeGT(DataGenerator):
         # get info about the current run
         # TODO: probably not needed
         run_info = parse_run_info(run_dir)
-        subject = run_info["subject"]
-        run = run_info["run"]
+        run_split = "{}_{}_{}".format(run_info["track_name"], run_info["subject"], run_info["run"])
 
         # initiate video capture and writer
-        video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
+        video_capture = cv2.VideoCapture(os.path.join(run_dir, f"{self.video_name}.mp4"))
         video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
         w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
@@ -362,6 +357,16 @@ class PredictedGazeGT(DataGenerator):
 
         if not (w == 800 and h == 600):
             print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+            return
+
+        # create dataset
+        data_set = resolve_dataset_class(self.config["dataset_name"])(self.config, run_split)
+
+        # check that dataset length and number of frames in video match
+        # TODO: might want to change this for stacked stuff (if we ever use it)
+        if num_frames != len(data_set):
+            print("WARNING: Dataset size ({}) and number of frames in video ({}) not the same for directory '{}'"
+                  .format(len(data_set), num_frames, run_dir))
             return
 
         # writer is only initialised after making sure that everything else works
@@ -373,32 +378,43 @@ class PredictedGazeGT(DataGenerator):
             True
         )
 
-        # loop through all frames and compute the optical flow
-        _, previous_frame = video_capture.read()
-        video_writer.write(np.zeros_like(previous_frame))
-        hsv_representation = np.zeros_like(previous_frame)
-        hsv_representation[..., 1] = 255
-        previous_frame = cv2.cvtColor(previous_frame, cv2.COLOR_BGR2GRAY)
-        # TODO: should there be some way to indicate whether optical flow is available? e.g. in frame_index?
-        for frame_idx in tqdm(range(1, num_frames), disable=False):
-            _, current_frame = video_capture.read()
-            current_frame = cv2.cvtColor(current_frame, cv2.COLOR_BGR2GRAY)
+        # loop through all frames and compute the attention prediction
+        # for frame in tqdm(data_set):
+        for start_frame in tqdm(range(0, len(data_set), self.batch_size)):
+            batch = []
+            for frame_idx in range(start_frame, start_frame + self.batch_size):
+                if frame_idx >= len(data_set):
+                    break
+                batch.append(data_set[frame_idx])
+            batch = to_device(to_batch(batch), self.device)
+            output = self.model(batch)
+            attention_batch = image_softmax(image_log_softmax(output["output_attention"])).cpu().detach().numpy().squeeze()
+            """
+            frame = to_device(frame, self.device, make_batch=True)  # TODO: should probably use larger batch size
+            output = self.model(frame)
+            attention = image_softmax(image_log_softmax(output["output_attention"])).cpu().detach().numpy().squeeze()
+            """
 
-            optical_flow = cv2.calcOpticalFlowFarneback(previous_frame, current_frame, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+            # print(attention.shape)
+            # print(attention.max(), attention.min())
 
-            magnitude, angle = cv2.cartToPolar(optical_flow[..., 0], optical_flow[..., 1])
-            hsv_representation[..., 0] = angle * 180 / np.pi / 2
-            hsv_representation[..., 2] = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
-            rgb_representation = cv2.cvtColor(hsv_representation, cv2.COLOR_HSV2BGR)
+            for attention in attention_batch:
+                # adjust the attention map to be an image in the same format as moving_window_frame_mean_gt
+                attention = np.repeat(attention[np.newaxis, :, :], 3, axis=0).transpose((1, 2, 0))
+                norm_max = np.max(attention)
+                if norm_max != 0:
+                    attention /= norm_max
+                attention = (attention * 255).astype("uint8")
+                attention = cv2.resize(attention, (800, 600), interpolation=cv2.INTER_CUBIC)
 
-            # save the resulting frame
-            video_writer.write(rgb_representation)
+                # write the attention map
+                video_writer.write(attention)
 
-            previous_frame = current_frame
+            # exit()
 
         video_writer.release()
 
-        print("Saved optical flow for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
+        print("Saved predicted attention maps for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
 class OpticalFlowFarneback(DataGenerator):
@@ -1119,6 +1135,8 @@ class DroneStateMPC(DataGenerator):
 def resolve_gt_class(data_type: str) -> Type[DataGenerator]:
     if data_type == "moving_window_frame_mean_gt":
         return MovingWindowFrameMeanGT
+    elif data_type == "predicted_gaze_gt":
+        return PredictedGazeGT
     elif data_type == "drone_control_frame_mean_gt":
         return DroneControlFrameMeanGT
     elif data_type == "drone_control_frame_mean_raw_gt":
@@ -1163,7 +1181,7 @@ if __name__ == "__main__":
     parser.add_argument("-dt", "--data_type", type=str, default="moving_window_frame_mean_gt",
                         choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt", "drone_control_mpc_gt",
                                  "drone_control_frame_mean_raw_gt", "random_gaze_gt", "drone_state_frame_mean",
-                                 "drone_state_original", "drone_state_mpc", "optical_flow"],
+                                 "drone_state_original", "drone_state_mpc", "optical_flow", "predicted_gaze_gt"],
                         help="The method to use to compute the ground-truth.")
     parser.add_argument("-di", "--directory_index", type=pair, default=None)
     parser.add_argument("-rs", "--random_seed", type=int, default=127,
@@ -1182,6 +1200,8 @@ if __name__ == "__main__":
     parser.add_argument("-vn", "--video_name", type=str, default="screen",
                         help="The name of the videos to use e.g. for computing feature track data.")
     parser.add_argument("-mlp", "--model_load_path", type=str,
+                        help=".")
+    parser.add_argument("-b", "--batch_size", type=int, default=16,
                         help=".")
     # FPS? if the input video is different, should use that FPS I guess
     # batch size? would probably speed things up significantly

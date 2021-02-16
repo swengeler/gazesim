@@ -109,7 +109,7 @@ def handle_single_video(config, run_dir, gt_video_path):
 
 
 def main(config):
-    for run_dir in iterate_directories(config["data_root"], config["track_name"])[209:]:
+    for run_dir in iterate_directories(config["data_root"], config["track_name"]):
         # need ground-truth to be there
         gt_video_path = os.path.join(run_dir, "{}.mp4".format(config["ground_truth_name"]))
 

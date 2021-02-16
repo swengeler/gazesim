@@ -161,6 +161,58 @@ def get_mean_mask(data, config):
     return mean_mask
 
 
+def get_gaze_distribution(data, config):
+    width = 800
+    height = 600
+
+    # create the array to accumulate values in
+    weights = np.zeros((width, height), dtype=np.float64)
+    total = 0
+
+    # loop through the frames
+    df_dict = {}
+    counter = 0
+    for _, row in tqdm(data.iterrows(), total=len(data.index)):
+        # load the dataframes if they haven't been loaded yet
+        rel_run_path = run_info_to_path(row["subject"], row["run"], row["track_name"])
+        if rel_run_path not in df_dict:
+            df_screen = pd.read_csv(os.path.join(config["data_root"], rel_run_path, "screen_timestamps.csv"))
+            df_gaze = pd.read_csv(os.path.join(config["data_root"], rel_run_path, "gaze_on_surface.csv"))
+
+            # filter out the frames that cannot be found in the index
+            indexed_frames = filter_by_property(data, [], {"subject": row["subject"],
+                                                           "run": row["run"],
+                                                           "track_name": row["track_name"]})["frame"]
+            df_screen = df_screen[df_screen["frame"].isin(indexed_frames)]
+
+            # select only the necessary data from the gaze dataframe and compute the on-screen coordinates
+            df_gaze = df_gaze[["ts", "frame", "norm_x_su", "norm_y_su"]]
+            df_gaze.columns = ["ts", "frame", "x", "y"]
+            df_gaze["x"] = np.round(df_gaze["x"] * width).astype(int)
+            df_gaze["y"] = np.round((1.0 - df_gaze["y"]) * height).astype(int)
+
+            # filter by screen timestamps
+            df_screen, df_gaze = filter_by_screen_ts(df_screen, df_gaze)
+
+            df_dict[rel_run_path] = {"screen": df_screen, "gaze": df_gaze}
+
+        df_gaze = df_dict[rel_run_path]["gaze"]
+        current_gaze = df_gaze[df_gaze["frame"] == row["frame"]]
+        for _, gaze_row in current_gaze.iterrows():
+            x = int(gaze_row["x"])
+            y = int(gaze_row["y"])
+            if 0 <= x < weights.shape[0] and 0 <= y < weights.shape[1]:
+                weights[x, y] += 1
+                total += 1
+        counter += 1
+
+    # normalise the probability distribution
+    if np.sum(weights) > 0.0:
+        weights /= np.sum(weights)
+
+    return weights
+
+
 def generate_from_index(config):
     # load the global index and the split index and combine them (to filter on the global index based on split)
     df_frame_index = pd.read_csv(os.path.join(config["data_root"], "index", "frame_index.csv"))
@@ -183,6 +235,23 @@ def generate_from_index(config):
     cv2.imwrite(os.path.join(config["data_root"], "preprocessing_info", "{}.png".format(config["name"])), mean_mask)
 
 
+def generate_distribution(config):
+    # load the global index, but keep everything, since we want the distribution over the entire dataset
+    # TODO: might want to change this, but only for one split? e.g. split 11
+    df_frame_index = pd.read_csv(os.path.join(config["data_root"], "index", "frame_index.csv"))
+
+    # filter only on gaze_measurement_available for this distribution thing for now
+    properties = {
+        "gaze_measurement_available": 1,
+    }
+    properties.update(config["filter"])
+    df_frame_index = filter_by_property(df_frame_index, [], properties)
+
+    # do something similar to get_mean_mask to get the distribution and save it as a numpy array
+    distribution = get_gaze_distribution(df_frame_index, config)
+    np.save(os.path.join(config["data_root"], "preprocessing_info", "{}.npy".format(config["name"])), distribution)
+
+
 def parse_config(args):
     config = vars(args)
     config["filter"] = {n: v for n, v in config["filter"]}
@@ -202,6 +271,9 @@ if __name__ == "__main__":
 
     PARSER = argparse.ArgumentParser()
 
+    PARSER.add_argument("-md", "--mode", type=str, default="mask", choices=["mask", "distribution"],
+                        help="Whether to generate a mask (an 8-bit image) or a distribution (a numpy array that is "
+                             "saved with full precision and normalised to sum to 1).")
     PARSER.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
     # PARSER.add_argument("-if", "--index_file", type=str, default=None,
@@ -227,7 +299,10 @@ if __name__ == "__main__":
     # main function call
     # generate_mean_mask(ARGS)
     # if CONFIG["split_config"] is not None:
-    generate_from_index(CONFIG)
+    if CONFIG["mode"] == "mask":
+        generate_from_index(CONFIG)
+    elif CONFIG["mode"] == "distribution":
+        generate_distribution(CONFIG)
 
     # TODO: if no index file is specified, should in principle split the data ourselves
     # however, this would mean that all options that can be specified for generate_splits should also appear here
