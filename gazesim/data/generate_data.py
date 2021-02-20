@@ -26,7 +26,7 @@ class DataGenerator:
         """
 
     def get_gt_info(self, run_dir, subject, run):
-        raise NotImplementedError()
+        pass
 
     def compute_gt(self, run_dir):
         raise NotImplementedError()
@@ -161,6 +161,8 @@ class MovingWindowFrameMeanGT(DataGenerator):
             video_writer.write(heatmap)
 
         video_writer.release()
+
+        # TODO: copy and adapt this to saving position-only GT
 
         print("Saved moving window ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
@@ -305,6 +307,83 @@ class RandomGazeGT(DataGenerator):
         print("Saved random gaze ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
+class ShuffledRandomGazeGT(DataGenerator):
+
+    NAME = "shuffled_random_{}"
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        self.video_name = config["video_name"]
+        self.class_name = self.__class__.NAME.format(self.video_name)
+        np.random.seed(config["random_seed"])
+
+    def compute_gt(self, run_dir):
+        start = time()
+
+        # initiate video capture
+        video_capture = cv2.VideoCapture(os.path.join(run_dir, f"{self.video_name}.mp4"))
+        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
+
+        if not (w == 800 and h == 600):
+            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+            return
+
+        video_writer = cv2.VideoWriter(
+            os.path.join(run_dir, f"{self.class_name}.mp4"),
+            int(fourcc),
+            fps,
+            (int(w), int(h)),
+            True
+        )
+
+        # load data frames
+        df_screen = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
+        df_laps = pd.read_csv(os.path.join(run_dir, "laptimes.csv"))
+
+        # determine intervals
+        intervals = []
+        for _, row in df_laps.iterrows():
+            if len(intervals) > 0 and abs(intervals[-1][1] - row["ts_start"]) > 1e-6:
+                intervals.append((intervals[-1][1], row["ts_start"]))
+            intervals.append((row["ts_start"], row["ts_end"]))
+        if len(intervals) == 0:
+            intervals.append((df_screen["ts"].iloc[0], df_screen["ts"].iloc[-1]))
+        else:
+            if df_screen["ts"].iloc[0] < intervals[0][0]:
+                intervals.insert(0, (df_screen["ts"].iloc[0], intervals[0][0]))
+            if df_screen["ts"].iloc[-1] > intervals[-1][1]:
+                intervals.append((intervals[-1][1], df_screen["ts"].iloc[-1]))
+
+        # loop through the intervals
+        progress_bar = tqdm(total=len(intervals))
+        for itv_idx, (itv_start, itv_end) in enumerate(intervals):
+            # get the frames
+            if itv_idx != len(intervals) - 1:
+                match_upper = df_screen["ts"] < itv_end
+            else:
+                match_upper = df_screen["ts"] <= itv_end
+            frames = df_screen.loc[(itv_start <= df_screen["ts"]) & match_upper, "frame"].values
+
+            # shuffle the frames
+            np.random.shuffle(frames)
+
+            # loop through them in that order
+            for f in frames:
+                # load frame at shuffled location, then save it
+                video_capture.set(cv2.CAP_PROP_POS_FRAMES, f)
+                _, image = video_capture.read()
+                video_writer.write(image)
+                progress_bar.update(1)
+
+        video_capture.release()
+        video_writer.release()
+
+        print("Saved shuffled random gaze ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
+
+
 class PredictedGazeGT(DataGenerator):
 
     NAME = "predicted_gaze_gt"
@@ -391,7 +470,7 @@ class PredictedGazeGT(DataGenerator):
                 batch.append(data_set[frame_idx])
             batch = to_device(to_batch(batch), self.device)
             output = self.model(batch)
-            attention_batch = image_softmax(image_log_softmax(output["output_attention"])).cpu().detach().numpy().squeeze()
+            attention_batch = image_softmax(image_log_softmax(output["output_attention"])).cpu().detach().numpy().squeeze(1)
             """
             frame = to_device(frame, self.device, make_batch=True)  # TODO: should probably use larger batch size
             output = self.model(frame)
@@ -1148,6 +1227,8 @@ def resolve_gt_class(data_type: str) -> Type[DataGenerator]:
         return DroneControlMPCGT
     elif data_type == "random_gaze_gt":
         return RandomGazeGT
+    elif data_type == "shuffled_random_gaze_gt":
+        return ShuffledRandomGazeGT
     elif data_type == "drone_state_frame_mean":
         return DroneStateFrameMean
     elif data_type == "drone_state_original":
@@ -1183,8 +1264,9 @@ if __name__ == "__main__":
                         help="The method to use to compute the ground-truth.")
     parser.add_argument("-dt", "--data_type", type=str, default="moving_window_frame_mean_gt",
                         choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt", "drone_control_mpc_gt",
-                                 "drone_control_frame_mean_raw_gt", "random_gaze_gt", "drone_state_frame_mean",
-                                 "drone_state_original", "drone_state_mpc", "optical_flow", "predicted_gaze_gt"],
+                                 "drone_control_frame_mean_raw_gt", "random_gaze_gt", "shuffled_random_gaze_gt",
+                                 "drone_state_frame_mean", "drone_state_original", "drone_state_mpc", "optical_flow",
+                                 "predicted_gaze_gt"],
                         help="The method to use to compute the ground-truth.")
     parser.add_argument("-di", "--directory_index", type=pair, default=None)
     parser.add_argument("-rs", "--random_seed", type=int, default=127,

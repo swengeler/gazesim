@@ -15,9 +15,12 @@ def handle_single_video(config, run_dir, gt_video_path):
     suffix = "" if config["frames_per_second"] == 60 else "_{}".format(config["frames_per_second"])
 
     rgb_video_path = os.path.join(run_dir, "{}.mp4".format(config["video_name"]))
-    hard_video_path = os.path.join(run_dir, "hard_mask_{}{}.mp4".format(config["ground_truth_name"], suffix))
-    soft_video_path = os.path.join(run_dir, "soft_mask_{}{}.mp4".format(config["ground_truth_name"], suffix))
-    mean_video_path = os.path.join(run_dir, "{}{}.mp4".format(config["mean_mask_name"], suffix))
+    hard_video_path = os.path.join(run_dir, "{}_hard_mask_{}{}.mp4".format(
+        config["video_name"], config["ground_truth_name"], suffix))
+    soft_video_path = os.path.join(run_dir, "{}_soft_mask_{}{}.mp4".format(
+        config["video_name"], config["ground_truth_name"], suffix))
+    mean_video_path = os.path.join(run_dir, "{}_{}{}.mp4".format(
+        config["video_name"], config["mean_mask_name"], suffix))
 
     current_output_mode = [om for om in config["output_mode"]]
 
