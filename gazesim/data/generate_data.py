@@ -239,6 +239,11 @@ class FrameMeanGazeGT(DataGenerator):
         # df_gaze["y"] = df_gaze["y"].clip(-1.0, 1.0)
         df_gaze["frame"] = -1
 
+        # TODO: if there are values that are nan between values that aren't then it could just be the case
+        #  that for that frame, there aren't any measurements (for the timestamps around that frame)
+        #  => this should happen very rarely, but should probably be corrected
+        #  => does it make sense after all to use measurements from more than one frame??
+
         """
         print(df_gaze[["x", "y"]].min())
         print(df_gaze[["x", "y"]].max())

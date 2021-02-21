@@ -306,6 +306,8 @@ if __name__ == "__main__":
     parser.add_argument("-ss", "--stack_size", type=int,
                         help="Number of frames to stack for models that take multiple "
                              "frames as input (i.e. C3D, Dr(eye)ve, RNNs)")
+    parser.add_argument("-cg", "--clip_gaze", action="store_true",
+                        help="Whether or not to clip gaze GT to [-1, 1] when loading it.")
     parser.add_argument("-ivn", "--input_video_names", type=str, nargs="+",
                         help="The (file) name(s) for the video(s) to use as input.")
     parser.add_argument("-dsn", "--drone_state_names", type=str, nargs="+",
@@ -374,6 +376,9 @@ if __name__ == "__main__":
     parser.add_argument("-nca", "--no_control_activation", action="store_true",
                         help="Whether or not to use an activation function for the output of the control "
                              "prediction network (currently using sigmoid for thrust and tanh for body rates).")
+    parser.add_argument("-ga", "--gaze_activation", action="store_true",
+                        help="Whether or not to use an activation function (tanh) "
+                             "for the output of the gaze prediction networks.")
     # TODO: should there be a choice between activation functions? e.g. ReLU for thrust?
 
     # arguments related to training

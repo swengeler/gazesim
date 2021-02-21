@@ -227,7 +227,10 @@ class ToGazeDataset(StackedGenericDataset):
             self.index[col] = ground_truth[col]
             self.output_columns.append(col)
 
-        self.output_clipping = False  # config["gaze_coordinate_clipping"]
+        self.output_clipping = config["clip_gaze"]
+        if self.output_clipping:
+            for col in self.output_columns:
+                self.index[col] = self.index[col].clip(-1.0, 1.0)
 
     def _get_gaze(self, item):
         current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
@@ -721,6 +724,7 @@ class ImageToGazeDataset(ImageDataset, ToGazeDataset):
 
         # original
         # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        # TODO: should just add an option to return this or not
         out = {}
 
         # transformed
@@ -1345,15 +1349,17 @@ if __name__ == "__main__":
     # dataset = ImageToControlDataset(test_config, "train")
     # dataset = StackedImageToControlDataset(test_config, "train")
     # dataset = DDADataset(test_config, "train")
-    dataset = ImageToGazeDataset(test_config, "train")
+    dataset = ImageToGazeDataset(test_config, "val")
     print("dataset size:", len(dataset))
 
-    from tqdm import tqdm
-    for d in tqdm(dataset):
-        pass
+    # from tqdm import tqdm
+    # for d in tqdm(dataset):
+    #     pass
 
     sample = dataset[len(dataset) - 1]
+    sample = dataset[0]
     print("sample:", sample.keys())
+    print(sample["output_gaze"])
     # print(sample["output_control"])
     # print(sample["input_feature_tracks"].shape)
     # print(sample["input_feature_tracks"]["stack"].shape)
@@ -1382,7 +1388,7 @@ if __name__ == "__main__":
         "no_normalisation": False
     }
 
-    dataset = StackedImageAndStateToControlDataset(test_config, split="train")
+    dataset = StackedImageAndStateToControlDataset(test_config, split="val")
     print(len(dataset))
     # print(dataset.index.columns)
 

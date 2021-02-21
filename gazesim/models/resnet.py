@@ -302,15 +302,18 @@ class ResNetRegressor(LoadableModule):
         self.pooling = nn.AdaptiveAvgPool2d((1, 1))
 
         # defining the upscaling layers to get out the original image size again
+        activation = DummyLayer()
+        if not self.regress_gaze and not config["no_control_activation"]:
+            activation = ControlActivationLayer()
+        elif self.regress_gaze and config["gaze_activation"]:
+            activation = nn.Tanh()
         self.regressor = nn.Sequential(
             nn.Linear(256, 2 if self.regress_gaze else 4),
-            DummyLayer() if self.regress_gaze or config["no_control_activation"] else ControlActivationLayer(),
-            # TODO: tanh activation
+            activation,
         )
 
     def forward(self, x):
         image_x = self.features(x["input_image_0"])
-        print(image_x.shape)
         image_x = self.pooling(image_x)
         image_x = image_x.reshape(image_x.size(0), -1)
 
@@ -341,12 +344,17 @@ class ResNetLargerRegressor(LoadableModule):
         self.image_fc_1 = nn.Linear(512, 256)
 
         # defining the upscaling layers to get out the original image size again
+        activation = DummyLayer()
+        if not self.regress_gaze and not config["no_control_activation"]:
+            activation = ControlActivationLayer()
+        elif self.regress_gaze and config["gaze_activation"]:
+            activation = nn.Tanh()
         self.regressor = nn.Sequential(
             nn.Linear(256, 256),
             nn.Dropout(0.5),
             nn.ReLU(),
             nn.Linear(256, 2 if self.regress_gaze else 4),
-            DummyLayer() if self.regress_gaze or config["no_control_activation"] else ControlActivationLayer(),
+            activation
         )
 
         self.relu = nn.ReLU()

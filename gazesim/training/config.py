@@ -14,6 +14,7 @@ DEFAULT_VALUES = {
     "split_config": 0,
     "frames_per_second": 60,
     "stack_size": 1,
+    "clip_gaze": False,
     "input_video_names": ["screen"],
     "drone_state_names": ["all"],
     "attention_ground_truth": "moving_window_frame_mean_gt",
@@ -40,6 +41,7 @@ DEFAULT_VALUES = {
     "model_name": "resnet_larger",
     "model_load_path": None,
     "no_control_activation": False,
+    "gaze_activation": False,
 
     "mode": "train",
     "gpu": 0,
