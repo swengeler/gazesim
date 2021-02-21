@@ -1,7 +1,7 @@
 import torch
 
-from gazesim.training.loggers import ControlLogger, AttentionLogger, AttentionAndControlLogger, CVControlLogger
-from gazesim.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset, StateToControlDataset
+from gazesim.training.loggers import ControlLogger, AttentionLogger, AttentionAndControlLogger, CVControlLogger, GazeLogger
+from gazesim.data.datasets import ImageToControlDataset, ImageAndStateToControlDataset, StateToControlDataset, ImageToGazeDataset
 from gazesim.data.datasets import ImageToAttentionAndControlDataset, StackedImageAndStateToControlDataset, ImageToAttentionDataset
 from gazesim.data.datasets import StackedImageToAttentionDataset, StackedImageToControlDataset, DrEYEveDataset, DDADataset
 from gazesim.models.c3d import C3DRegressor, C3DStateRegressor
@@ -39,6 +39,8 @@ def resolve_model_class(model_name):
         "dda": DDAModel,
         "high_res_att": HighResAttention,
         "simple_att": SimpleAttention,
+        "resnet_gaze": ResNetRegressor,
+        "resnet_larger_gaze": ResNetLargerRegressor,
     }[model_name]
 
 
@@ -57,9 +59,9 @@ def get_outputs(dataset_name):
         "StateToControlDataset": ["output_control"],
         "ImageToAttentionAndControlDataset": ["output_attention", "output_control"],
         "ImageToAttentionDataset": ["output_attention"],
+        "ImageToGazeDataset": ["output_gaze"],
         "DrEYEveDataset": ["output_attention", "output_attention_crop"],
         "DDADataset": ["output_control"],
-        # TODO: this might actually depend on more than just this  (e.g. if some dreyeve architecture is used)
     }[dataset_name]
 
 
@@ -74,6 +76,7 @@ def get_valid_losses(dataset_name):
         "StateToControlDataset": {"output_control": ["mse"]},
         "ImageToAttentionAndControlDataset": {"output_attention": ["kl"], "output_control": ["mse"]},
         "ImageToAttentionDataset": {"output_attention": ["kl"]},
+        "ImageToGazeDataset": {"output_gaze": ["mse"]},
         "DrEYEveDataset": {"output_attention": ["kl", "mse"], "output_attention_crop": ["kl", "mse"]},
         "DDADataset": {"output_control": ["mse"]},
     }[dataset_name]
@@ -99,7 +102,8 @@ def resolve_output_processing_func(output_name):
         "output_attention_crop": image_log_softmax,
         # TODO: might not be the best way to do this, would be nicer if output could be
         #  structured as a nested dictionary as well and this would be compatible with that...
-        "output_control": lambda x: x
+        "output_control": lambda x: x,
+        "output_gaze": lambda x: x,
     }[output_name]
 
 
@@ -126,6 +130,8 @@ def resolve_dataset_name(model_name):
         "dda": "DDADataset",
         "high_res_att": "ImageToAttentionDataset",
         "simple_att": "ImageToAttentionDataset",
+        "resnet_gaze": "ImageToGazeDataset",
+        "resnet_larger_gaze": "ImageToGazeDataset",
     }[model_name]
 
 
@@ -139,13 +145,13 @@ def resolve_dataset_class(dataset_name):
         "StackedImageToAttentionDataset": StackedImageToAttentionDataset,
         "ImageToAttentionAndControlDataset": ImageToAttentionAndControlDataset,
         "ImageToAttentionDataset": ImageToAttentionDataset,
+        "ImageToGazeDataset": ImageToGazeDataset,
         "DrEYEveDataset": DrEYEveDataset,
         "DDADataset": DDADataset,
     }[dataset_name]
 
 
 def resolve_logger_class(dataset_name, mode):
-    # TODO: needs to be updated so that control + attention output can be logged properly
     if "AttentionAndControl" in dataset_name:
         if mode == "train":
             return AttentionAndControlLogger
@@ -154,6 +160,8 @@ def resolve_logger_class(dataset_name, mode):
             return ControlLogger
         elif mode == "cv":
             return CVControlLogger
+    elif "Gaze" in dataset_name:
+        return GazeLogger
     else:
         # TODO: consider also logging cropped attention if available
         #  => probably not worth making a new logger for but could check if the data is there
@@ -185,6 +193,8 @@ def resolve_resize_parameters(model_name):
         "dda": -1,
         "high_res_att": 300,
         "simple_att": 300,
+        "resnet_gaze": 300,
+        "resnet_larger_gaze": 150,
     }[model_name]
 
 
@@ -199,6 +209,7 @@ def resolve_gt_name(dataset_name):
         "StackedImageToAttentionDataset": "moving_window_frame_mean_gt",
         "ImageToAttentionAndControlDataset": ["moving_window_frame_mean_gt", "drone_control_frame_mean_gt"],
         "ImageToAttentionDataset": "moving_window_frame_mean_gt",
+        "ImageToGazeDataset": "frame_mean_gaze_gt",
         "DrEYEveDataset": "moving_window_frame_mean_gt",
         "DDADataset": "drone_control_frame_mean_raw_gt",
     }[dataset_name]

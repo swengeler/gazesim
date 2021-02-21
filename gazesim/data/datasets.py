@@ -212,6 +212,36 @@ class ToAttentionDataset(GenericDataset):
         return attention, attention_original
 
 
+class ToGazeDataset(StackedGenericDataset):
+
+    def __init__(self, config, split, cv_split=-1):
+        super().__init__(config, split, cv_split)
+
+        self.output_columns = []
+
+        # load additional information and put it in the index
+        ground_truth = pd.read_csv(os.path.join(self.data_root, "index", f"frame_mean_gaze_gt.csv"))
+        ground_truth = ground_truth.loc[self.sub_index]
+        ground_truth = ground_truth.reset_index(drop=True)
+        for col in ground_truth:
+            self.index[col] = ground_truth[col]
+            self.output_columns.append(col)
+
+        self.output_clipping = False  # config["gaze_coordinate_clipping"]
+
+    def _get_gaze(self, item):
+        current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
+
+        # extract the control GT from the dataframe
+        gaze = self.index[self.output_columns].iloc[current_stack_index].values
+        if self.output_clipping:
+            # gaze_coordinate /= self.output_normalisation
+            gaze = np.clip(gaze, -1.0, 1.0)
+        gaze = torch.from_numpy(gaze).float()
+
+        return gaze
+
+
 class ImageDataset(GenericDataset):
 
     def __init__(self, config, split, cv_split=-1):
@@ -677,6 +707,26 @@ class ImageToControlDataset(ImageDataset, ToControlDataset):
         for idx, i in enumerate(image):
             out[f"input_image_{idx}"] = i
         out["output_control"] = control
+        out["label_high_level"] = label
+
+        return out
+
+
+class ImageToGazeDataset(ImageDataset, ToGazeDataset):
+
+    def __getitem__(self, item):
+        image, image_original = self._get_image(item)
+        gaze = self._get_gaze(item)
+        label = self.index["label"].iloc[item]
+
+        # original
+        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
+        out = {}
+
+        # transformed
+        for idx, i in enumerate(image):
+            out[f"input_image_{idx}"] = i
+        out["output_gaze"] = gaze
         out["label_high_level"] = label
 
         return out
@@ -1263,13 +1313,13 @@ class StackedImageAndStateToControlDataset(Dataset):
 if __name__ == "__main__":
     test_config = {
         "data_root": os.getenv("GAZESIM_ROOT"),
-        "input_video_names": ["flightmare_2"],  # ["screen"],
+        "input_video_names": ["screen"],  # ["screen"],
         "drone_state_names": ["DroneVelocityX", "DroneVelocityY", "DroneVelocityZ"],
         "attention_ground_truth": "moving_window_frame_mean_gt",
         "control_ground_truth": "drone_control_frame_mean_gt",
         "resize": 150,
         "stack_size": 8,
-        "split_config": resolve_split_index_path(13, data_root=os.getenv("GAZESIM_ROOT")),
+        "split_config": resolve_split_index_path(11, data_root=os.getenv("GAZESIM_ROOT")),
         "frames_per_second": 60,
         "no_normalisation": True,
         "video_data_augmentation": False,
@@ -1294,7 +1344,8 @@ if __name__ == "__main__":
     # dataset = DrEYEveDataset(test_config, "train")
     # dataset = ImageToControlDataset(test_config, "train")
     # dataset = StackedImageToControlDataset(test_config, "train")
-    dataset = DDADataset(test_config, "train")
+    # dataset = DDADataset(test_config, "train")
+    dataset = ImageToGazeDataset(test_config, "train")
     print("dataset size:", len(dataset))
 
     from tqdm import tqdm
@@ -1303,7 +1354,7 @@ if __name__ == "__main__":
 
     sample = dataset[len(dataset) - 1]
     print("sample:", sample.keys())
-    print(sample["output_control"])
+    # print(sample["output_control"])
     # print(sample["input_feature_tracks"].shape)
     # print(sample["input_feature_tracks"]["stack"].shape)
     # print(sample["input_state"]["stack"].shape)

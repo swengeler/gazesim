@@ -167,6 +167,115 @@ class MovingWindowFrameMeanGT(DataGenerator):
         print("Saved moving window ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
+class FrameMeanGazeGT(DataGenerator):
+
+    NAME = "frame_mean_gaze_gt"
+
+    def get_gt_info(self, run_dir, subject, run):
+        # get the path to the index directory
+        index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
+        frame_index_path = os.path.join(index_dir, "frame_index.csv")
+        gaze_gt_path = os.path.join(index_dir, "gaze_gt.csv")
+        gaze_measurements_path = os.path.join(index_dir, f"{self.__class__.NAME}.csv")
+
+        df_frame_index = pd.read_csv(frame_index_path)
+
+        if os.path.exists(gaze_gt_path):
+            df_gaze_gt = pd.read_csv(gaze_gt_path)
+        else:
+            df_gaze_gt = df_frame_index.copy()
+            df_gaze_gt = df_gaze_gt[["frame", "subject", "run"]]
+
+        if os.path.exists(gaze_measurements_path):
+            df_gaze_measurements = pd.read_csv(gaze_measurements_path)
+        else:
+            df_gaze_measurements = df_frame_index.copy()
+            df_gaze_measurements = df_gaze_measurements[["frame"]]
+            df_gaze_measurements.columns = ["x"]
+            df_gaze_measurements["x"] = np.nan
+            df_gaze_measurements["y"] = np.nan
+
+        if self.__class__.NAME not in df_gaze_gt.columns:
+            df_gaze_gt[self.__class__.NAME] = -1
+
+        # in principle, need only subject and run to identify where to put the new info...
+        # e.g. track name is more of a property to filter on...
+        match_index = (df_gaze_gt["subject"] == subject) & (df_gaze_gt["run"] == run)
+
+        return df_gaze_gt, df_gaze_measurements, gaze_gt_path, gaze_measurements_path, match_index
+
+    def compute_gt(self, run_dir):
+        start = time()
+
+        # get info about the current run
+        run_info = parse_run_info(run_dir)
+        subject = run_info["subject"]
+        run = run_info["run"]
+
+        # get the ground-truth info
+        df_gaze_gt, df_gaze_measurements, gaze_gt_path, gaze_measurements_path, match_index = self.get_gt_info(
+            run_dir, subject, run)
+
+        # initiate video capture and writer
+        video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
+        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
+
+        if not (w == 800 and h == 600):
+            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+            return
+
+        # load data frames with the timestamps and positions for gaze and the frames/timestamps for the video
+        df_gaze = pd.read_csv(os.path.join(run_dir, "gaze_on_surface.csv"))
+        df_screen = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
+
+        # select only the necessary data from the gaze dataframe and compute the on-screen coordinates
+        df_gaze = df_gaze[["ts", "frame", "norm_x_su", "norm_y_su"]]
+        df_gaze.columns = ["ts", "frame", "x", "y"]
+        df_gaze["x"] = df_gaze["x"] * 2.0 - 1.0
+        # df_gaze["x"] = df_gaze["x"].clip(-1.0, 1.0)
+        df_gaze["y"] = (1.0 - df_gaze["y"]) * 2.0 - 1.0
+        # df_gaze["y"] = df_gaze["y"].clip(-1.0, 1.0)
+        df_gaze["frame"] = -1
+
+        """
+        print(df_gaze[["x", "y"]].min())
+        print(df_gaze[["x", "y"]].max())
+        print(df_gaze[["x", "y"]].mean())
+        print(df_gaze[["x", "y"]].median())
+        print((df_gaze["x"] < -1.0).sum(), (df_gaze["x"] > 1.0).sum())
+        print((df_gaze["y"] < -1.0).sum(), (df_gaze["y"] > 1.0).sum())
+        print(len(df_gaze.index))
+        print()
+        exit()
+        """
+
+        # filter by screen timestamps
+        df_screen, df_gaze = filter_by_screen_ts(df_screen, df_gaze)
+
+        # since the measurements are close together and to reduce computational load,
+        # compute the mean measurement for each frame
+        df_gaze = df_gaze[["frame", "x", "y"]]
+        df_gaze = df_gaze.groupby("frame").mean()
+        df_gaze["frame"] = df_gaze.index
+        df_gaze = df_gaze.reset_index(drop=True)
+
+        # add information about gaze GT being available to frame-wise screen info
+        df_gaze_gt.loc[match_index, self.__class__.NAME] = df_screen["frame"].isin(df_gaze["frame"]).astype(int).values
+        df_gaze_columns = df_gaze_measurements.copy()[["x", "y"]]
+        df_gaze = df_gaze.set_index("frame")
+        for (_, row), f in tqdm(zip(df_gaze.iterrows(), df_gaze.index), disable=False, total=len(df_gaze.index)):
+            df_gaze_columns.iloc[match_index & (df_gaze_gt["frame"] == f)] = row.values
+        df_gaze_measurements[["x", "y"]] = df_gaze_columns[["x", "y"]]
+
+        # save gaze gt to CSV with updated data
+        df_gaze_gt.to_csv(gaze_gt_path, index=False)
+        df_gaze_measurements.to_csv(gaze_measurements_path, index=False)
+
+        print("Saved frame mean gaze GT for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
+
+
 class RandomGazeGT(DataGenerator):
 
     NAME = "random_gaze_gt"
@@ -1217,6 +1326,8 @@ class DroneStateMPC(DataGenerator):
 def resolve_gt_class(data_type: str) -> Type[DataGenerator]:
     if data_type == "moving_window_frame_mean_gt":
         return MovingWindowFrameMeanGT
+    elif data_type == "frame_mean_gaze_gt":
+        return FrameMeanGazeGT
     elif data_type == "predicted_gaze_gt":
         return PredictedGazeGT
     elif data_type == "drone_control_frame_mean_gt":
@@ -1266,7 +1377,7 @@ if __name__ == "__main__":
                         choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt", "drone_control_mpc_gt",
                                  "drone_control_frame_mean_raw_gt", "random_gaze_gt", "shuffled_random_gaze_gt",
                                  "drone_state_frame_mean", "drone_state_original", "drone_state_mpc", "optical_flow",
-                                 "predicted_gaze_gt"],
+                                 "predicted_gaze_gt", "frame_mean_gaze_gt"],
                         help="The method to use to compute the ground-truth.")
     parser.add_argument("-di", "--directory_index", type=pair, default=None)
     parser.add_argument("-rs", "--random_seed", type=int, default=127,

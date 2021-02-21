@@ -238,6 +238,77 @@ class ControlLogger(GenericLogger):
         raise NotImplementedError()
 
 
+class GazeLogger(GenericLogger):
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        # should these be lists? I don't think they need to be, since we usually only need to keep track of one
+        # can probably just subclass this class and have a current_split index....
+        self.gaze_names = ["x_norm_coord", "y_norm_coord"]
+        self.gaze_partial_losses_val_mse = None
+        self.gaze_partial_losses_val_l1 = None
+
+    def _gaze_training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        # determine individual losses
+        individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_gaze"],
+                                                             batch["output_gaze"],
+                                                             reduction="none")
+        individual_losses_mse = torch.mean(individual_losses_mse, dim=0)
+
+        # log individual losses
+        for n, l_mse in zip(self.gaze_names, individual_losses_mse):
+            self.tb_writers[self.current_split].add_scalar(f"loss/train/output_gaze/{n}/mse", l_mse, global_step)
+
+    def _gaze_validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        # determine individual losses
+        individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_gaze"],
+                                                             batch["output_gaze"],
+                                                             reduction="none")
+        individual_losses_mse = torch.mean(individual_losses_mse, dim=0)
+        individual_losses_l1 = torch.nn.functional.l1_loss(predictions["output_gaze"],
+                                                           batch["output_gaze"],
+                                                           reduction="none")
+        individual_losses_l1 = torch.mean(individual_losses_l1, dim=0)
+
+        # accumulate individual losses
+        if self.gaze_partial_losses_val_mse is None:
+            self.gaze_partial_losses_val_mse = torch.zeros_like(individual_losses_mse)
+            self.gaze_partial_losses_val_l1 = torch.zeros_like(individual_losses_l1)
+        self.gaze_partial_losses_val_mse += individual_losses_mse
+        self.gaze_partial_losses_val_l1 += individual_losses_l1
+
+    def _gaze_validation_epoch_end(self, global_step, epoch, model, optimiser):
+        # log individual losses
+        for n, l_mse, l_l1 in zip(self.gaze_names, self.gaze_partial_losses_val_mse, self.gaze_partial_losses_val_l1):
+            self.tb_writers[self.current_split].add_scalar(f"loss/val/output_gaze/{n}/mse", l_mse / self.counter_val, global_step)
+            self.tb_writers[self.current_split].add_scalar(f"loss/val/output_gaze/{n}/l1", l_l1 / self.counter_val, global_step)
+
+        # reset the loss accumulators
+        self.gaze_partial_losses_val_mse = torch.zeros_like(self.gaze_partial_losses_val_mse)
+        self.gaze_partial_losses_val_l1 = torch.zeros_like(self.gaze_partial_losses_val_l1)
+
+    def training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        self._generic_training_step_end(global_step, total_loss, partial_losses, batch, predictions)
+        self._gaze_training_step_end(global_step, total_loss, partial_losses, batch, predictions)
+
+    def validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        self._generic_validation_step_end(global_step, total_loss, partial_losses, batch, predictions)
+        self._gaze_validation_step_end(global_step, total_loss, partial_losses, batch, predictions)
+        self.counter_val += 1
+
+    def validation_epoch_end(self, global_step, epoch, model, optimiser):
+        self._generic_validation_epoch_end(global_step, epoch, model, optimiser)
+        self._gaze_validation_epoch_end(global_step, epoch, model, optimiser)
+        self.counter_val = 0
+
+    def final_training_pass_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
+        raise NotImplementedError()
+
+    def final_training_pass_epoch_end(self, global_step, epoch, model, optimiser):
+        raise NotImplementedError()
+
+
 class AttentionLogger(GenericLogger):
 
     def __init__(self, config):

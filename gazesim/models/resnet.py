@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torchvision.models as models
 
 # from torchsummary import summary
@@ -288,6 +289,8 @@ class ResNetRegressor(LoadableModule):
     def __init__(self, config=None):
         super().__init__()
 
+        self.regress_gaze = "gaze" in config["model_name"]
+
         # defining the feature-extracting CNN using VGG16 layers as a basis
         resnet18 = models.resnet18(True)
         modules = list(resnet18.children())[:7]
@@ -300,8 +303,9 @@ class ResNetRegressor(LoadableModule):
 
         # defining the upscaling layers to get out the original image size again
         self.regressor = nn.Sequential(
-            nn.Linear(256, 4),
-            DummyLayer() if config["no_control_activation"] else ControlActivationLayer(),
+            nn.Linear(256, 2 if self.regress_gaze else 4),
+            DummyLayer() if self.regress_gaze or config["no_control_activation"] else ControlActivationLayer(),
+            # TODO: tanh activation
         )
 
     def forward(self, x):
@@ -312,7 +316,7 @@ class ResNetRegressor(LoadableModule):
 
         probabilities = self.regressor(image_x)
 
-        out = {"output_control": probabilities}
+        out = {"output_gaze" if self.regress_gaze else "output_control": probabilities}
         return out
 
 
@@ -320,6 +324,8 @@ class ResNetLargerRegressor(LoadableModule):
 
     def __init__(self, config=None):
         super().__init__()
+
+        self.regress_gaze = "gaze" in config["model_name"]
 
         # defining the feature-extracting CNN using VGG16 layers as a basis
         resnet18 = models.resnet18(True)
@@ -339,8 +345,8 @@ class ResNetLargerRegressor(LoadableModule):
             nn.Linear(256, 256),
             nn.Dropout(0.5),
             nn.ReLU(),
-            nn.Linear(256, 4),
-            DummyLayer() if config["no_control_activation"] else ControlActivationLayer(),
+            nn.Linear(256, 2 if self.regress_gaze else 4),
+            DummyLayer() if self.regress_gaze or config["no_control_activation"] else ControlActivationLayer(),
         )
 
         self.relu = nn.ReLU()
@@ -355,7 +361,7 @@ class ResNetLargerRegressor(LoadableModule):
 
         probabilities = self.regressor(image_x)
 
-        out = {"output_control": probabilities}
+        out = {"output_gaze" if self.regress_gaze else "output_control": probabilities}
         return out
 
 
@@ -476,6 +482,8 @@ class ResNetAttention(LoadableModule):
     def __init__(self, config=None, module_transfer_depth=6, transfer_weights=True):
         super().__init__()
 
+        self.features_only = False if config is None or "resnet_features_only" not in config else config["resnet_features_only"]
+
         # defining the feature-extracting CNN using VGG16 layers as a basis
         resnet18 = models.resnet18(transfer_weights)
         modules = list(resnet18.children())[:module_transfer_depth]
@@ -506,9 +514,15 @@ class ResNetAttention(LoadableModule):
 
     def forward(self, x):
         image_x = self.features(x["input_image_0"])
+        if self.features_only:
+            out = {
+                "output_features": image_x,
+            }
+            return out
+
         image_x = self.upscaling(image_x)
         out = {
-            "output_attention": image_x
+            "output_attention": image_x,
         }
         return out
 
@@ -559,6 +573,7 @@ class SimpleAttention(LoadableModule):
 if __name__ == "__main__":
     cfg = {
         "no_control_activation": False,
+        "resnet_features_only": True,
     }
 
     use_cuda = torch.cuda.is_available()
@@ -574,8 +589,12 @@ if __name__ == "__main__":
     # net = ResNet18DualBranchRegressor().to(device)
     # net = ResNetLargerAttentionAndControl(cfg).to(device)
     # net = ResNetRegressor(cfg).to(device)
-    net = SimpleAttention(cfg).to(device)
+    net = ResNetAttention(cfg).to(device)
     out = net(sample)
+    print(out["output_features"].shape)
+    process = F.adaptive_avg_pool2d(out["output_features"], (1, 1))
+    process = process.reshape(-1)
+    print(process.shape)
     # print(out)
     # print(net)
 

@@ -366,7 +366,7 @@ if __name__ == "__main__":
                                  "codevilla_multi_head", "codevilla_dual_branch", "codevilla_no_state", "resnet_state",
                                  "resnet", "resnet_larger", "resnet_state_larger", "resnet_larger_att_ctrl",
                                  "state_only", "dreyeve_branch", "resnet_att", "resnet_larger_gru", "ue4sim", "dda",
-                                 "high_res_att", "simple_att"],
+                                 "high_res_att", "simple_att", "resnet_gaze", "resnet_larger_gaze"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,  # TODO: maybe adjust for dreyeve net
                         help="Path to load a model checkpoint from (including information about the "
@@ -398,8 +398,6 @@ if __name__ == "__main__":
                              "(and how many) it has. For now only one loss can be specified (no architecture "
                              "with multiple outputs/losses). If the wrong loss is supplied, it will be changed "
                              "automatically to the default loss for a given architecture/output type.")
-
-    # TODO: add loss weights for the dreyeve models
 
     # arguments related to logging information
     parser.add_argument("-lg", "--log_root", type=str,

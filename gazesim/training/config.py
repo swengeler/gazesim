@@ -6,7 +6,7 @@ import torch
 from datetime import datetime
 from gazesim.data.utils import resolve_split_index_path
 from gazesim.data.constants import STATE_VARS_SHORTHAND_DICT
-from gazesim.training.helpers import resolve_dataset_name, resolve_resize_parameters, get_outputs, get_valid_losses, resolve_gt_name
+from gazesim.training.helpers import resolve_dataset_name, resolve_resize_parameters, get_outputs, get_valid_losses
 
 
 DEFAULT_VALUES = {
