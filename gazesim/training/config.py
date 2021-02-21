@@ -14,7 +14,6 @@ DEFAULT_VALUES = {
     "split_config": 0,
     "frames_per_second": 60,
     "stack_size": 1,
-    "clip_gaze": False,
     "input_video_names": ["screen"],
     "drone_state_names": ["all"],
     "attention_ground_truth": "moving_window_frame_mean_gt",
@@ -24,6 +23,8 @@ DEFAULT_VALUES = {
     "no_normalisation": False,
     "control_normalisation": False,
     "control_normalisation_range": [("throttle", 20), ("roll", 6), ("pitch", 6), ("yaw", 6)],
+    "clip_gaze": False,
+    "scale_gaze": False,
 
     "video_data_augmentation": False,
     "vda_probability": 0.7,

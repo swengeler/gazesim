@@ -232,14 +232,15 @@ class ToGazeDataset(StackedGenericDataset):
             for col in self.output_columns:
                 self.index[col] = self.index[col].clip(-1.0, 1.0)
 
+        self.output_scaling = config["scale_gaze"]
+        if self.output_scaling:
+            self.index[self.output_columns] *= np.array([800.0, 600.0])
+
     def _get_gaze(self, item):
         current_stack_index = self.index.index[self.index["stack_index"] == item].values[0]
 
         # extract the control GT from the dataframe
         gaze = self.index[self.output_columns].iloc[current_stack_index].values
-        if self.output_clipping:
-            # gaze_coordinate /= self.output_normalisation
-            gaze = np.clip(gaze, -1.0, 1.0)
         gaze = torch.from_numpy(gaze).float()
 
         return gaze
@@ -1334,6 +1335,8 @@ if __name__ == "__main__":
             "pitch": 10.0,
             "yaw": 0.01,
         },
+        "clip_gaze": True,
+        "scale_gaze": True,
         "dreyeve_transforms": False,
         "feature_track_name": "ft_flightmare_60",
         "feature_track_num": 40,

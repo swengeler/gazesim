@@ -306,8 +306,6 @@ if __name__ == "__main__":
     parser.add_argument("-ss", "--stack_size", type=int,
                         help="Number of frames to stack for models that take multiple "
                              "frames as input (i.e. C3D, Dr(eye)ve, RNNs)")
-    parser.add_argument("-cg", "--clip_gaze", action="store_true",
-                        help="Whether or not to clip gaze GT to [-1, 1] when loading it.")
     parser.add_argument("-ivn", "--input_video_names", type=str, nargs="+",
                         help="The (file) name(s) for the video(s) to use as input.")
     parser.add_argument("-dsn", "--drone_state_names", type=str, nargs="+",
@@ -330,6 +328,10 @@ if __name__ == "__main__":
                         help="Whether or not to normalise the control input data.")
     parser.add_argument("-cnr", "--control_normalisation_range", type=pair, nargs="+",
                         help="Ranges of control inputs to use for normalisation (i.e. maximum thrust and body rates).")
+    parser.add_argument("-cg", "--clip_gaze", action="store_true",
+                        help="Whether or not to clip gaze GT to [-1, 1] when loading it.")
+    parser.add_argument("-sg", "--scale_gaze", action="store_true",
+                        help="Whether or not to scale gaze GT to actual image coordinates (after clipping).")
 
     # arguments related to (video) data augmentation
     parser.add_argument("-vda", "--video_data_augmentation", action="store_true",
