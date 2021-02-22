@@ -16,11 +16,12 @@ from gazesim.data.constants import STATISTICS
 
 class GenericDataset(Dataset):
 
-    def __init__(self, config, split, cv_split=-1):
+    def __init__(self, config, split, cv_split=-1, training=True):
         self.data_root = config["data_root"]
         # TODO: this needs to change if we want multiple possible outputs... should this be a list? or should
         #  there be specific inputs for control_gt, attention_gt etc. => I think this would be better actually
         self.split = split
+        self.training = self.split == "train" and training
         self.fps = config["frames_per_second"]
         self.fps_reduced = self.fps != 60
 
@@ -90,8 +91,8 @@ class GenericDataset(Dataset):
 
 class StackedGenericDataset(GenericDataset):
 
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__(config, split, cv_split)
+    def __init__(self, config, split, cv_split=-1, training=True):
+        super().__init__(config, split, cv_split, training)
 
         self.stack_size = config["stack_size"]
 
@@ -133,8 +134,8 @@ class StackedGenericDataset(GenericDataset):
 
 class ToControlDataset(StackedGenericDataset):
 
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__(config, split, cv_split)
+    def __init__(self, config, split, cv_split=-1, training=True):
+        super().__init__(config, split, cv_split, training)
 
         self.control_output_name = config["control_ground_truth"]
         self.output_columns = []
@@ -174,17 +175,28 @@ class ToControlDataset(StackedGenericDataset):
 
 class ToAttentionDataset(GenericDataset):
 
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__(config, split, cv_split)
+    def __init__(self, config, split, cv_split=-1, training=True):
+        super().__init__(config, split, cv_split, training)
 
         self.attention_output_name = config["attention_ground_truth"]
+
+        self.random_crop = None
+        size_before_crop = config["resize"]
+        if self.training and config["video_random_cropping"] and config["resize"] != -1:
+            if not isinstance(config["resize"], tuple):
+                height = config["resize"]
+                width = int(800 / (600 / height))
+                config["resize"] = (height, width)
+            size_before_crop = tuple((np.array(config["resize"]) * config["vrc_factor_before_crop"]).astype(int))
+            self.random_crop = ManualRandomCrop(size_before_crop, config["resize"])
 
         self.attention_output_transform = transforms.Compose([
             ImageToAttentionMap(),
             transforms.ToPILImage(),
-            transforms.Resize(config["resize"]),
+            transforms.Resize(size_before_crop),
+            self.random_crop if self.random_crop is not None else lambda x: x,
             transforms.ToTensor(),
-            MakeValidDistribution()
+            MakeValidDistribution(),
         ])
 
         self.video_output_readers = {}
@@ -214,8 +226,8 @@ class ToAttentionDataset(GenericDataset):
 
 class ToGazeDataset(StackedGenericDataset):
 
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__(config, split, cv_split)
+    def __init__(self, config, split, cv_split=-1, training=True):
+        super().__init__(config, split, cv_split, training)
 
         self.output_columns = []
 
@@ -248,8 +260,8 @@ class ToGazeDataset(StackedGenericDataset):
 
 class ImageDataset(GenericDataset):
 
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__(config, split, cv_split)
+    def __init__(self, config, split, cv_split=-1, training=True):
+        super().__init__(config, split, cv_split, training)
 
         self.video_input_names = config["input_video_names"]
 
@@ -276,29 +288,46 @@ class ImageDataset(GenericDataset):
                         "std": STATISTICS["std"][i]
                     }
         """
+
+        size_before_crop = config["resize"]
+        if not hasattr(self, "random_crop"):
+            self.random_crop = None
+            if self.training and config["video_random_cropping"] and config["resize"] != -1:
+                if not isinstance(config["resize"], tuple):
+                    height = config["resize"]
+                    width = int(800 / (600 / height))
+                    config["resize"] = (height, width)
+                size_before_crop = tuple((np.array(config["resize"]) * config["vrc_factor_before_crop"]).astype(int))
+                self.random_crop = ManualRandomCrop(size_before_crop, config["resize"])
+        elif self.random_crop is not None:
+            size_before_crop = tuple((np.array(config["resize"]) * 1.5).astype(int))
+
         input_statistics = {}
         for i in self.video_input_names:
-            input_statistics[i] = {"mean": np.array([0, 0, 0]), "std": np.array([1, 1, 1])}
+            input_statistics[i] = {"mean": np.array([0.0, 0.0, 0.0]), "std": np.array([1.0, 1.0, 1.0])}
         self.video_input_transforms = [transforms.Compose([
             transforms.ToPILImage(),
-            transforms.Resize(config["resize"]),
+            transforms.Resize(size_before_crop),
+            self.random_crop if self.random_crop is not None else lambda x: x,
             transforms.ToTensor(),
             transforms.Normalize(input_statistics[i]["mean"], input_statistics[i]["std"])
         ]) for i in self.video_input_names]
 
         self.video_input_augmentation = None
-        if config["video_data_augmentation"] and self.split == "train":
-            # TODO: think about whether RandomOrder should also be used
+        if self.training and config["video_data_augmentation"]:
             jitter = config["vda_jitter_range"]
             self.video_input_augmentation = [MultiRandomApply([
                 transforms.ColorJitter(brightness=jitter, contrast=jitter, saturation=jitter, hue=jitter),
                 GaussianNoise(config["vda_gaussian_noise_sigma"]),
                 # TODO: S&P noise (?): https://stackoverflow.com/a/30609854
-                transforms.GaussianBlur(11),  # TODO: should this come before the other transforms?
+                transforms.GaussianBlur(11),
                 transforms.RandomErasing(1.0)
             ], p=config["vda_probability"]) for _ in self.video_input_names]
 
         self.video_input_readers = {}
+
+        # to be used by subclasses mostly
+        self.return_original = config.get("return_original", False)
 
     def _get_image(self, item):
         current_row = self.index.iloc[item]
@@ -321,7 +350,7 @@ class ImageDataset(GenericDataset):
         # original and non-original
         image_original = [np.array(i.copy()) for i in image]
         image = [self.video_input_transforms[idx](i) for idx, i in enumerate(image)]
-        if self.video_input_augmentation is not None and self.split == "train":
+        if self.training and self.video_input_augmentation is not None:
             image = [self.video_input_augmentation[idx](i) for idx, i in enumerate(image)]
 
         return image, image_original
@@ -343,8 +372,8 @@ class ImageDataset(GenericDataset):
 
 class StackedImageDataset(ImageDataset):
 
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__(config, split, cv_split)
+    def __init__(self, config, split, cv_split=-1, training=True):
+        super().__init__(config, split, cv_split, training)
 
         self.stack_size = config["stack_size"]
         self.dreyeve_transforms = config["dreyeve_transforms"]
@@ -417,8 +446,8 @@ class StackedImageDataset(ImageDataset):
 
 class StateDataset(GenericDataset):
 
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__(config, split, cv_split)
+    def __init__(self, config, split, cv_split=-1, training=True):
+        super().__init__(config, split, cv_split, training)
 
         self.state_input_names = config["drone_state_names"]
 
@@ -441,8 +470,8 @@ class StateDataset(GenericDataset):
 #  to be stacked and if there's only one frame, you can just squeeze out that extra dimension?
 class FeatureTrackDataset(StackedGenericDataset):
 
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__(config, split, cv_split)
+    def __init__(self, config, split, cv_split=-1, training=True):
+        super().__init__(config, split, cv_split, training)
 
         self.feature_track_name = config["feature_track_name"]
         self.feature_track_num = config["feature_track_num"]
@@ -525,8 +554,8 @@ class FeatureTrackDataset(StackedGenericDataset):
 
 class ReferenceDataset(StackedGenericDataset):
     # how is this different from StateDataset? not really sure... might even replace that
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__(config, split, cv_split)
+    def __init__(self, config, split, cv_split=-1, training=True):
+        super().__init__(config, split, cv_split, training)
 
         self.reference_name = config["reference_name"]
         self.reference_variables = config["reference_variables"]
@@ -584,8 +613,8 @@ class StateEstimateDataset(StackedGenericDataset):
         "omega_z": 0.1,
     }
 
-    def __init__(self, config, split, cv_split=-1):
-        super().__init__(config, split, cv_split)
+    def __init__(self, config, split, cv_split=-1, training=True):
+        super().__init__(config, split, cv_split, training)
 
         self.state_estimate_name = config["state_estimate_name"]
         self.state_estimate_variables = config["state_estimate_variables"]
@@ -682,9 +711,13 @@ class ImageToAttentionDataset(ImageDataset, ToAttentionDataset):
         attention, attention_original = self._get_attention(item)
         label = self.index["label"].iloc[item]
 
+        if self.random_crop is not None:
+            self.random_crop.update()
+
         # original
-        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
-        # out = {"original": {}}
+        out = {"original": {}}
+        if self.return_original:
+            out["original"] = {f"input_image_{idx}": i for idx, i in enumerate(image_original)}
         out["original"]["output_attention"] = attention_original
 
         # transformed
@@ -704,8 +737,9 @@ class ImageToControlDataset(ImageDataset, ToControlDataset):
         label = self.index["label"].iloc[item]
 
         # original
-        out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
-        # out = {}
+        out = {}
+        if self.return_original:
+            out["original"] = {f"input_image_{idx}": i for idx, i in enumerate(image_original)}
 
         # transformed
         for idx, i in enumerate(image):
@@ -723,10 +757,13 @@ class ImageToGazeDataset(ImageDataset, ToGazeDataset):
         gaze = self._get_gaze(item)
         label = self.index["label"].iloc[item]
 
+        if self.random_crop is not None:
+            self.random_crop.update()
+
         # original
-        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
-        # TODO: should just add an option to return this or not
         out = {}
+        if self.return_original:
+            out["original"] = {f"input_image_{idx}": i for idx, i in enumerate(image_original)}
 
         # transformed
         for idx, i in enumerate(image):
@@ -768,8 +805,9 @@ class ImageToAttentionAndControlDataset(ImageDataset, ToAttentionDataset, ToCont
         label = self.index["label"].iloc[item]
 
         # original
-        # out = {"original": {f"input_image_{idx}": i for idx, i in enumerate(image_original)}}
         out = {"original": {}}
+        if self.return_original:
+            out["original"] = {f"input_image_{idx}": i for idx, i in enumerate(image_original)}
         out["original"]["output_attention"] = attention_original
 
         # transformed
@@ -1093,12 +1131,12 @@ class StackedImageToAttentionDataset(Dataset):
 class DrEYEveDataset(StackedImageDataset, ToAttentionDataset):
     # TODO: since the way of dealing with the transforms is pretty annoying, this might be for the best
 
-    def __init__(self, config, split, cv_split=-1):
+    def __init__(self, config, split, cv_split=-1, training=True):
         # TODO: should maybe be set in config and just be asserts here?
         config["dreyeve_transforms"] = True
         config["stack_size"] = 16
 
-        super().__init__(config, split, cv_split)
+        super().__init__(config, split, cv_split, training)
 
         self.transform = DrEYEveTransform(self.video_input_names)
 
@@ -1328,6 +1366,8 @@ if __name__ == "__main__":
         "frames_per_second": 60,
         "no_normalisation": True,
         "video_data_augmentation": False,
+        "video_random_cropping": True,
+        "vrc_factor_before_crop": 1.5,
         "control_normalisation": True,
         "control_normalisation_range": {
             "throttle": 0.0001,
@@ -1352,7 +1392,8 @@ if __name__ == "__main__":
     # dataset = ImageToControlDataset(test_config, "train")
     # dataset = StackedImageToControlDataset(test_config, "train")
     # dataset = DDADataset(test_config, "train")
-    dataset = ImageToGazeDataset(test_config, "val")
+    # dataset = ImageToGazeDataset(test_config, "val")
+    dataset = ImageToAttentionDataset(test_config, "train")
     print("dataset size:", len(dataset))
 
     # from tqdm import tqdm
@@ -1362,7 +1403,7 @@ if __name__ == "__main__":
     sample = dataset[len(dataset) - 1]
     sample = dataset[0]
     print("sample:", sample.keys())
-    print(sample["output_gaze"])
+    # print(sample["output_gaze"])
     # print(sample["output_control"])
     # print(sample["input_feature_tracks"].shape)
     # print(sample["input_feature_tracks"]["stack"].shape)

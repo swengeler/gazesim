@@ -30,6 +30,8 @@ DEFAULT_VALUES = {
     "vda_probability": 0.7,
     "vda_jitter_range": 0.2,
     "vda_gaussian_noise_sigma": 0.1,
+    "video_random_cropping": False,
+    "vrc_factor_before_crop": 1.5,
 
     "feature_track_name": "ft_flightmare_60",
     "feature_track_num": 40,

@@ -90,6 +90,7 @@ def main(config):
     train_config = parse_train_config(train_config)
     train_config["split_config"] = config["split_config"]
     train_config["input_video_names"] = [config["video_name"]]
+    train_config["return_original"] = True
 
     # load the model
     model_info = train_config["model_info"]
@@ -98,12 +99,17 @@ def main(config):
     model = model.to(device)
     model.eval()
 
+    gaze_model = "gaze" in train_config["model_name"]
+    output_name = "output_attention"
+    if gaze_model:
+        output_name = "output_gaze"
+
     # TODO: this is ok for now, but should probably changed e.g.
     #  for image (stacks) + state datasets to be automatic/flexible
     prediction_only = config["output_mode"] == "prediction_only"
     dataset_class = ImageDataset if prediction_only else resolve_dataset_class(train_config["dataset_name"])
 
-    # TODO: apply filter (can include split, subject, run I guess, not sure that lap would make sense)
+    # TODO: apply filter (can include split, svektorubject, run I guess, not sure that lap would make sense)
     #  => actually, if we wanted to just extract a single video for one lap, it would probably make sense...
     # but if the default is that everything is used... then there is a bit of an issue for labeling complete sequences
     # could either ignore that if it is the case, complain/skip if there is overlap in a single sequence or just
@@ -140,10 +146,10 @@ def main(config):
                 video_dir = os.path.join(save_dir, run_dir)
                 if not os.path.exists(video_dir):
                     os.makedirs(video_dir)
-                # TODO: also input video name
                 video_capture = cv2.VideoCapture(os.path.join(config["data_root"], run_dir, "{}.mp4".format(config["video_name"])))
                 fps, fourcc = (video_capture.get(i) for i in range(5, 7))
-                video_name = "{}_comparison_{}_{}_{}.mp4".format("default_attention_gt", config["video_name"], config["output_mode"], split)
+                video_name = "{}_comparison_{}_{}_{}.mp4".format("gaze_gt" if gaze_model else "default_attention_gt",
+                                                                 config["video_name"], config["output_mode"], split)
                 video_writer = cv2.VideoWriter(os.path.join(video_dir, video_name), int(fourcc), fps, output_size, True)
                 video_writer_dict[run_dir] = video_writer
 
@@ -154,12 +160,14 @@ def main(config):
 
                 # compute the loss
                 prediction = model(sample)
-                prediction["output_attention"] = image_softmax(resolve_output_processing_func(
-                    "output_attention")(prediction["output_attention"]))
+                if gaze_model:
+                    prediction[output_name] = resolve_output_processing_func(output_name)(prediction[output_name])
+                else:
+                    prediction[output_name] = image_softmax(resolve_output_processing_func(output_name)(prediction[output_name]))
 
                 # get the values as numpy arrays
-                attention_gt = None if prediction_only else sample["output_attention"].cpu().detach().numpy().squeeze()
-                attention_prediction = prediction["output_attention"].cpu().detach().numpy().squeeze()
+                attention_gt = None if prediction_only else sample[output_name].cpu().detach().numpy().squeeze()
+                attention_prediction = prediction[output_name].cpu().detach().numpy().squeeze()
 
                 # get the original frame as a numpy array (also convert color for OpenCV)
                 frame = sample["original"]["input_image_0"].cpu().detach().numpy().squeeze()
@@ -167,29 +175,30 @@ def main(config):
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
                 # stack greyscale labels to become RGB
-                if not prediction_only:
-                    attention_gt = np.repeat(attention_gt[np.newaxis, :, :], 3, axis=0).transpose((1, 2, 0))
-                attention_prediction = np.repeat(attention_prediction[np.newaxis, :, :], 3, axis=0).transpose((1, 2, 0))
-
-                # normalise using the maximum of the maxima of either label and convert to [0, 255] scale
-                norm_max = attention_prediction.max() if prediction_only else max([attention_gt.max(), attention_prediction.max()])
-                if norm_max != 0:
+                if not gaze_model:
                     if not prediction_only:
-                        attention_gt /= norm_max
-                    attention_prediction /= norm_max
-                if not prediction_only:
-                    attention_gt = (attention_gt * 255).astype("uint8")
-                attention_prediction = (attention_prediction * 255).astype("uint8")
+                        attention_gt = np.repeat(attention_gt[np.newaxis, :, :], 3, axis=0).transpose((1, 2, 0))
+                    attention_prediction = np.repeat(attention_prediction[np.newaxis, :, :], 3, axis=0).transpose((1, 2, 0))
 
-                # set all but one colour channel for GT and predicted labels to 0
-                if not prediction_only:
-                    attention_gt[:, :, 1:] = 0
-                attention_prediction[:, :, :-1] = 0
+                    # normalise using the maximum of the maxima of either label and convert to [0, 255] scale
+                    norm_max = attention_prediction.max() if prediction_only else max([attention_gt.max(), attention_prediction.max()])
+                    if norm_max != 0:
+                        if not prediction_only:
+                            attention_gt /= norm_max
+                        attention_prediction /= norm_max
+                    if not prediction_only:
+                        attention_gt = (attention_gt * 255).astype("uint8")
+                    attention_prediction = (attention_prediction * 255).astype("uint8")
 
-                # scale the attention maps to the right size
-                if not prediction_only:
-                    attention_gt = cv2.resize(attention_gt, (800, 600))
-                attention_prediction = cv2.resize(attention_prediction, (800, 600))
+                    # set all but one colour channel for GT and predicted labels to 0
+                    if not prediction_only:
+                        attention_gt[:, :, 1:] = 0
+                    attention_prediction[:, :, :-1] = 0
+
+                    # scale the attention maps to the right size
+                    if not prediction_only:
+                        attention_gt = cv2.resize(attention_gt, (800, 600))
+                    attention_prediction = cv2.resize(attention_prediction, (800, 600))
 
                 # stack the frames/labels for the video
                 temp = np.zeros(output_size[::-1] + (3,), dtype="uint8")
@@ -206,9 +215,21 @@ def main(config):
                     new_frame = np.hstack((frame, attention_gt, attention_prediction))
                     temp[100:, :, :] = new_frame
                 elif config["output_mode"] == "overlay_simple":
+                    # right now only overlay_simple "supported"
                     frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)
-                    combined_labels = cv2.addWeighted(attention_gt, 0.5, attention_prediction, 0.5, 0)
-                    new_frame = cv2.addWeighted(frame, 0.4, combined_labels, 0.6, 0)
+                    if gaze_model:
+                        if hasattr(current_dataset, "output_scaling") and current_dataset.output_scaling:
+                            attention_gt += np.array([400.0, 300.0])
+                            attention_prediction += np.array([400.0, 300.0])
+
+                        attention_gt = tuple(np.round(attention_gt).astype(int))
+                        attention_prediction = tuple(np.round(attention_prediction).astype(int))
+
+                        frame = cv2.circle(frame, attention_gt, 5, (255, 0, 0), -1)
+                        new_frame = cv2.circle(frame, attention_prediction, 5, (0, 0, 255), -1)
+                    else:
+                        combined_labels = cv2.addWeighted(attention_gt, 0.5, attention_prediction, 0.5, 0)
+                        new_frame = cv2.addWeighted(frame, 0.4, combined_labels, 0.6, 0)
                     temp[100:, :, :] = new_frame
                 elif config["output_mode"] == "prediction_only":
                     frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)

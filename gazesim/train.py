@@ -342,6 +342,11 @@ if __name__ == "__main__":
                         help="Color jitter range for data augmentation.")
     parser.add_argument("--vda_gaussian_noise_sigma", type=float,
                         help="Standard deviation for Gaussian noise applied for data augmentation.")
+    parser.add_argument("-vrc", "--video_random_cropping", action="store_true",
+                        help="Whether or not to randomly crop image/video input data.")
+    parser.add_argument("--vrc_factor_before_crop", type=float,
+                        help="If random cropping is used, by what factor to "
+                             "resize images/attention maps to before cropping.")
 
     # arguments related to the DDA input modalities
     parser.add_argument("-fts", "--feature_track_name", type=str,
