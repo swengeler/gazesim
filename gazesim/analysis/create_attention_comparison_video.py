@@ -219,8 +219,17 @@ def main(config):
                     frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)
                     if gaze_model:
                         if hasattr(current_dataset, "output_scaling") and current_dataset.output_scaling:
+                            attention_gt /= 2.0
+                            attention_prediction /= 2.0
                             attention_gt += np.array([400.0, 300.0])
                             attention_prediction += np.array([400.0, 300.0])
+                            # attention_gt[1] = 600.0 - attention_gt[1]
+                            # attention_prediction[1] = 600.0 - attention_prediction[1]
+                        else:
+                            attention_gt = ((attention_gt + 1.0) / 2.0) * np.array([800.0, 600.0])
+                            attention_prediction = ((attention_prediction + 1.0) / 2.0) * np.array([800.0, 600.0])
+                            # attention_gt[1] = 600.0 - attention_gt[1]
+                            # attention_prediction[1] = 600.0 - attention_prediction[1]
 
                         attention_gt = tuple(np.round(attention_gt).astype(int))
                         attention_prediction = tuple(np.round(attention_prediction).astype(int))
@@ -269,7 +278,7 @@ if __name__ == "__main__":
                         help="The name of the input video.")
     parser.add_argument("-s", "--split", type=str, nargs="+", default=["val"], choices=["train", "val", "test"],
                         help="Splits for which to create videos.")
-    parser.add_argument("-sc", "--split_config", type=str, default=0,
+    parser.add_argument("-sc", "--split_config", type=str, default=11,
                         help="TODO.")
     parser.add_argument("-g", "--gpu", type=int, default=0,
                         help="The GPU to use.")
@@ -286,8 +295,6 @@ if __name__ == "__main__":
                         help="The path to the model checkpoint to use for computing the predictions.")
     parser.add_argument("-sf", "--slow_down_factor", type=int, default=1,
                         help="Factor by which the output video is slowed down (frames are simply saved multiple times).")
-
-    # TODO: implement something to only show the predictions (because no original exists)
 
     # parse the arguments
     arguments = parser.parse_args()

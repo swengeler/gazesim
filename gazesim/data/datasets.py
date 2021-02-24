@@ -246,6 +246,8 @@ class ToGazeDataset(StackedGenericDataset):
 
         self.output_scaling = config["scale_gaze"]
         if self.output_scaling:
+            # TODO: might want to change this since now the range is twice as large as intended...
+            #  => need to be consistent with how everything is handled in DDA though
             self.index[self.output_columns] *= np.array([800.0, 600.0])
 
     def _get_gaze(self, item):
@@ -753,12 +755,12 @@ class ImageToControlDataset(ImageDataset, ToControlDataset):
 class ImageToGazeDataset(ImageDataset, ToGazeDataset):
 
     def __getitem__(self, item):
+        if self.random_crop is not None:
+            self.random_crop.update()
+
         image, image_original = self._get_image(item)
         gaze = self._get_gaze(item)
         label = self.index["label"].iloc[item]
-
-        if self.random_crop is not None:
-            self.random_crop.update()
 
         # original
         out = {}
