@@ -223,6 +223,20 @@ class ToAttentionDataset(GenericDataset):
 
         return attention, attention_original
 
+    def __getitem__(self, item):
+        attention, attention_original = self._get_attention(item)
+        label = self.index["label"].iloc[item]
+
+        out = {
+            # original
+            "original": {"output_attention": attention_original},
+            # transformed
+            "output_attention": attention,
+            "label_high_level": label,
+        }
+
+        return out
+
 
 class ToGazeDataset(StackedGenericDataset):
 

@@ -3,7 +3,7 @@ import pandas as pd
 import cv2
 
 from tqdm import tqdm
-from gazesim.data.utils import run_info_to_path
+from gazesim.data.utils import run_info_to_path, iterate_directories, parse_run_info
 
 
 COLUMN_DICT = {
@@ -36,6 +36,12 @@ def extract_lap_trajectory(args):
     df_laps = pd.read_csv(inpath_laps)
 
     # select the data from the drone dataframe by the timestamps for the lap index in laptimes
+    """
+    ts_start = df_laps.loc[df_laps["lap"] == 2, "ts_start"].values[0]
+    ts_end = df_laps.loc[df_laps["lap"] == 8, "ts_end"].values[0]
+    args.lap_index = 22
+    time_stamps = [ts_start, ts_end]
+    """
     time_stamps = df_laps.loc[df_laps["lap"] == args.lap_index, ["ts_start", "ts_end"]].values[0]
     df_traj = df_drone[df_drone["time-since-start [s]"].between(time_stamps[0] - args.buffer, time_stamps[1])]
 
@@ -94,6 +100,42 @@ def extract_lap_video(args):
     video_writer.release()
 
 
+def extract_all_from_subject(args):
+    # extract all "expected" trajectories from one subject (also print their time)
+
+    for run_dir in iterate_directories(os.path.join(args.data_root, "s{:03d}".format(args.subject)),
+                                       track_names=args.track_name):
+        #
+        run_info = parse_run_info(run_dir)
+
+        # load expected_trajectories.csv
+        if not os.path.exists(os.path.join(run_dir, "expected_trajectory.csv")):
+            continue
+        df_exp_traj = pd.read_csv(os.path.join(run_dir, "expected_trajectory.csv"))
+        df_laps = pd.read_csv(os.path.join(run_dir, "laptimes.csv"))
+
+        for _, lap_row in df_laps.iterrows():
+            current_lap = lap_row["lap"]
+            # if current_lap < 0:
+            #     continue
+            # print(current_lap)
+            # print(lap_row["is_valid"])
+            # print(current_lap in df_exp_traj["lap"])
+            # print()
+            # print("Run: {}, lap: {}".format(run_info["run"], current_lap))
+            current_lap_valid = bool(lap_row["is_valid"])
+            if current_lap_valid:
+                current_lap_valid = current_lap_valid and current_lap in df_exp_traj["lap"].values
+                if current_lap_valid:
+                    current_lap_valid = current_lap_valid and bool(df_exp_traj.loc[df_exp_traj["lap"] == current_lap,
+                                                                                   "expected_trajectory"].values[0])
+                    if current_lap_valid:
+                        args.run = run_info["run"]
+                        args.lap_index = current_lap
+                        extract_lap_trajectory(args)
+                        # print("Run: {}, lap: {}, length: {}".format(args.run, args.lap_index, lap_row["lap_time"]))
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -113,6 +155,9 @@ if __name__ == "__main__":
     arguments = parser.parse_args()
 
     if arguments.mode == "trajectory":
-        extract_lap_trajectory(arguments)
+        if arguments.subject is not None and arguments.run is None:
+            extract_all_from_subject(arguments)
+        else:
+            extract_lap_trajectory(arguments)
     elif arguments.mode == "video":
         extract_lap_video(arguments)
