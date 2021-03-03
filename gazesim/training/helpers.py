@@ -78,7 +78,7 @@ def get_valid_losses(dataset_name):
         "ImageAndStateToControlDataset": {"output_control": ["mse"]},
         "StateToControlDataset": {"output_control": ["mse"]},
         "ImageToAttentionAndControlDataset": {"output_attention": ["kl"], "output_control": ["mse"]},
-        "ImageToAttentionDataset": {"output_attention": ["kl", "ice"]},
+        "ImageToAttentionDataset": {"output_attention": ["kl", "ice", "mse"]},
         "ImageToGazeDataset": {"output_gaze": ["mse"]},
         "DrEYEveDataset": {"output_attention": ["kl", "mse"], "output_attention_crop": ["kl", "mse"]},
         "DDADataset": {"output_control": ["mse"]},

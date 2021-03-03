@@ -190,7 +190,24 @@ def main(config):
                 if gaze_model:
                     prediction[output_name] = resolve_output_processing_func(output_name)(prediction[output_name])
                 else:
-                    prediction[output_name] = image_softmax(resolve_output_processing_func(output_name)(prediction[output_name]))
+                    # final_func = torch.sigmoid if train_config["losses"][output_name] == "ice" else image_softmax
+                    output_processing_func = {
+                        "kl": image_softmax,
+                        "ice": torch.sigmoid,
+                        "mse": lambda x: x,
+                    }[train_config["losses"][output_name]]
+                    if isinstance(prediction[output_name], dict):
+                        # prediction[output_name] = image_softmax(resolve_output_processing_func(
+                        #     output_name, train_config["losses"][output_name])(prediction[output_name]["final"]))
+                        # prediction[output_name] = final_func(resolve_output_processing_func(
+                        #     output_name, train_config["losses"][output_name])(prediction[output_name]["final"]))
+                        prediction[output_name] = output_processing_func(prediction[output_name]["final"])
+                    else:
+                        # prediction[output_name] = final_func(resolve_output_processing_func(
+                        #     output_name, train_config["losses"][output_name])(prediction[output_name]))
+                        prediction[output_name] = output_processing_func(prediction[output_name])
+                        # prediction[output_name] = torch.sigmoid(resolve_output_processing_func(
+                        #     output_name, train_config["losses"][output_name])(prediction[output_name]))
 
                 # get the values as numpy arrays
                 attention_gt = None if prediction_only else sample[output_name].cpu().detach().numpy().squeeze()

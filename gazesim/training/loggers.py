@@ -358,11 +358,15 @@ class AttentionLogger(GenericLogger):
             # get the original from the batch and the predictions and plot them
             # probably only include the original of the uncropped attention map...
             images_original = convert_attention_to_image(batch["original"]["output_attention"])
+
             attention_prediction = predictions["output_attention"]["final"] if isinstance(
                 predictions["output_attention"], dict) else predictions["output_attention"]
-            attention_prediction = image_softmax(attention_prediction) if self.loss_name != "ice" \
-                else torch.sigmoid(attention_prediction)
-            images_prediction = convert_attention_to_image(image_softmax(attention_prediction),
+            output_processing_func = {
+                "kl": image_softmax,
+                "ice": torch.sigmoid,
+                "mse": lambda x: x,
+            }[self.loss_name]
+            images_prediction = convert_attention_to_image(output_processing_func(attention_prediction),
                                                            out_shape=images_original.shape[2:])
 
             self.tb_writers[self.current_split].add_images("attention/val/ground_truth", images_original,

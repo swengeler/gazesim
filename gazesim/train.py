@@ -417,6 +417,9 @@ if __name__ == "__main__":
                              "for the output of the gaze prediction networks.")
     parser.add_argument("-csf", "--channel_scale_factor", type=int,
                         help="Factor by which to  scale the number of channels for the high-resolution attention model.")
+    parser.add_argument("-hra", "--high_res_activation", action="store_true",
+                        help="Whether or not to activate the attention output of the "
+                             "High-Res-Attention network (using hard tanh).")
 
     # arguments related to training
     parser.add_argument("-md", "--mode", type=str, choices=["train", "cv"],

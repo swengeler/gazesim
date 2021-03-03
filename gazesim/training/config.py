@@ -46,6 +46,7 @@ DEFAULT_VALUES = {
     "no_control_activation": False,
     "gaze_activation": False,
     "channel_scale_factor": 1,
+    "high_res_activation": False,
 
     "mode": "train",
     "gpu": 0,

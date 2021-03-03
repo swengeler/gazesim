@@ -610,7 +610,7 @@ if __name__ == "__main__":
     # print(net)
 
     num_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
-    print("Number of parameters for ResNet attention network:", num_params)
+    print("Number of parameters for ResNet attention network :", num_params)
 
     # summary(net, (3, 300, 400))
 

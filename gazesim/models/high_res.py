@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
-from gazesim.models.layers import LoadableModule
+from gazesim.models.layers import LoadableModule, DummyLayer
 
 
 # from https://pdfs.semanticscholar.org/04ce/787f6cf139c72d5b9cbb47be26f122f19c1b.pdf
@@ -21,6 +21,9 @@ class HighResAttention(LoadableModule):
 
         # scale factor for increasing the depth of the feature maps
         self.csf = config["channel_scale_factor"]
+
+        # activation layer at the end
+        self.final_activation = config["high_res_activation"]
 
         ##########################
         # FULL RESOLUTION BLOCKS #
@@ -296,8 +299,7 @@ class HighResAttention(LoadableModule):
         ########################
         self.combined_final = nn.Sequential(
             nn.Conv2d(in_channels=120 * self.csf, out_channels=1, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0)),
-            # nn.Hardtanh() => really not sure what this is supposed to accomplish
-            # TODO: potentially activation layer?
+            nn.Hardtanh() if self.final_activation else DummyLayer(),
         )
 
     def forward(self, x):
@@ -390,7 +392,7 @@ if __name__ == "__main__":
         "input_image_0": torch.zeros((1, 3, 300, 400)).to(device),
     }
 
-    net = HighResAttention({"resize": 300}).to(device)
+    net = HighResAttention({"resize": 300, "channel_scale_factor": 1}).to(device)
     result = net(sample)
 
     num_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
