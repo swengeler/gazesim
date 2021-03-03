@@ -582,6 +582,8 @@ if __name__ == "__main__":
     cfg = {
         "no_control_activation": False,
         "resnet_features_only": True,
+        "model_name": "resnet_gaze",
+        "gaze_activation": False,
     }
 
     use_cuda = torch.cuda.is_available()
@@ -590,7 +592,7 @@ if __name__ == "__main__":
     tensor = torch.zeros((1, 3, 300, 400)).to(device)
     # tensor = [torch.zeros((1, 3, 300, 400)).to(device), torch.zeros((1, 3, 300, 400)).to(device)]
     sample = {
-        "input_image_0": torch.zeros((1, 3, 300, 400)).to(device),
+        "input_image_0": torch.zeros((1, 3, 150, 200)).to(device),
         "input_state": torch.zeros((1, 9)).to(device)
     }
 
@@ -598,13 +600,17 @@ if __name__ == "__main__":
     # net = ResNetLargerAttentionAndControl(cfg).to(device)
     # net = ResNetRegressor(cfg).to(device)
     net = ResNetAttention(cfg).to(device)
+    # net = ResNetLargerRegressor(cfg).to(device)
     out = net(sample)
-    print(out["output_features"].shape)
-    process = F.adaptive_avg_pool2d(out["output_features"], (1, 1))
-    process = process.reshape(-1)
-    print(process.shape)
+    # print(out["output_features"].shape)
+    # process = F.adaptive_avg_pool2d(out["output_features"], (1, 1))
+    # process = process.reshape(-1)
+    # print(process.shape)
     # print(out)
     # print(net)
+
+    num_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    print("Number of parameters for ResNet attention network:", num_params)
 
     # summary(net, (3, 300, 400))
 

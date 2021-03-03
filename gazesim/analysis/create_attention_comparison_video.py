@@ -104,6 +104,15 @@ def main(config):
     if gaze_model:
         output_name = "output_gaze"
 
+    gaze_data = None
+    if gaze_model and config["save_gaze"]:
+        gaze_data = {
+            "x_gt": [],
+            "y_gt": [],
+            "x_pred": [],
+            "y_pred": [],
+        }
+
     # TODO: this is ok for now, but should probably changed e.g.
     #  for image (stacks) + state datasets to be automatic/flexible
     prediction_only = config["output_mode"] == "prediction_only"
@@ -135,10 +144,28 @@ def main(config):
             check = [current_frame_index["run"].iloc[si] in config["runs"] for si, _ in sequences]
             sequences = [sequences[i] for i in range(len(sequences)) if check[i]]
             run_dirs = [run_dirs[i] for i in range(len(run_dirs)) if check[i]]
+        if len(config["laps"]) > 0:
+            check = [current_frame_index["lap_index"].iloc[si] in config["laps"] for si, _ in sequences]
+            sequences = [sequences[i] for i in range(len(sequences)) if check[i]]
+            run_dirs = [run_dirs[i] for i in range(len(run_dirs)) if check[i]]
+
+        print(sequences)
 
         run_dir = run_dirs[0]
         for (start_index, end_index), current_run_dir in tqdm(zip(sequences, run_dirs), disable=False, total=len(sequences)):
             if current_run_dir != run_dir:
+                if gaze_model and config["save_gaze"]:
+                    if gaze_data is not None:
+                        gaze_data = pd.DataFrame(gaze_data)
+                        gaze_data.to_csv(os.path.join(config["data_root"], run_dir, "gaze_data.csv"))
+
+                    gaze_data = {
+                        "x_gt": [],
+                        "y_gt": [],
+                        "x_pred": [],
+                        "y_pred": [],
+                    }
+
                 video_writer_dict[run_dir].release()
                 run_dir = current_run_dir
 
@@ -168,6 +195,22 @@ def main(config):
                 # get the values as numpy arrays
                 attention_gt = None if prediction_only else sample[output_name].cpu().detach().numpy().squeeze()
                 attention_prediction = prediction[output_name].cpu().detach().numpy().squeeze()
+
+                # if specified, save GT predictions to CSV
+                if gaze_model and config["save_gaze"]:
+                    save_gt = attention_gt.copy()
+                    save_pred = attention_prediction.copy()
+
+                    # get normalised image coordinates
+                    if hasattr(current_dataset, "output_scaling") and current_dataset.output_scaling:
+                        save_gt /= np.array([800.0, 600.0])
+                        save_pred /= np.array([800.0, 600.0])
+
+                    # store stuff for saving later
+                    gaze_data["x_gt"].append(save_gt[0])
+                    gaze_data["y_gt"].append(save_gt[1])
+                    gaze_data["x_pred"].append(save_pred[0])
+                    gaze_data["y_pred"].append(save_pred[1])
 
                 # get the original frame as a numpy array (also convert color for OpenCV)
                 frame = sample["original"]["input_image_0"].cpu().detach().numpy().squeeze()
@@ -234,8 +277,8 @@ def main(config):
                         attention_gt = tuple(np.round(attention_gt).astype(int))
                         attention_prediction = tuple(np.round(attention_prediction).astype(int))
 
-                        frame = cv2.circle(frame, attention_gt, 5, (255, 0, 0), -1)
-                        new_frame = cv2.circle(frame, attention_prediction, 5, (0, 0, 255), -1)
+                        frame = cv2.circle(frame, attention_gt, 10, (255, 0, 0), -1)
+                        new_frame = cv2.circle(frame, attention_prediction, 10, (0, 0, 255), -1)
                     else:
                         combined_labels = cv2.addWeighted(attention_gt, 0.5, attention_prediction, 0.5, 0)
                         new_frame = cv2.addWeighted(frame, 0.4, combined_labels, 0.6, 0)
@@ -257,6 +300,10 @@ def main(config):
 
         for _, vr in video_writer_dict.items():
             vr.release()
+
+        if gaze_model and config["save_gaze"] and gaze_data is not None:
+            gaze_data = pd.DataFrame(gaze_data)
+            gaze_data.to_csv(os.path.join(save_dir, run_dir, "gaze_data.csv"))
 
 
 def parse_config(args):
@@ -286,6 +333,8 @@ if __name__ == "__main__":
                         help="Subjects to use.")
     parser.add_argument("-run", "--runs", type=int, nargs="*", default=[],
                         help="Runs to use.")
+    parser.add_argument("-lap", "--laps", type=int, nargs="*", default=[],
+                        help="Laps to use.")
     parser.add_argument("-f", "--filter", type=str, default=None, choices=["turn_left", "turn_right"],
                         help="'Property' by which to filter frames (only left/right turn for now).")
     parser.add_argument("-tn", "--track_name", type=str, default="flat",
@@ -295,6 +344,8 @@ if __name__ == "__main__":
                         help="The path to the model checkpoint to use for computing the predictions.")
     parser.add_argument("-sf", "--slow_down_factor", type=int, default=1,
                         help="Factor by which the output video is slowed down (frames are simply saved multiple times).")
+    parser.add_argument("-sgz", "--save_gaze", action="store_true",
+                        help="Whether to save gaze predictions or not.")
 
     # parse the arguments
     arguments = parser.parse_args()

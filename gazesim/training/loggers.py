@@ -1,6 +1,7 @@
 import os
 import json
 import torch
+import torch.nn.functional as F
 
 from torch.utils.tensorboard import SummaryWriter
 from gazesim.models.utils import image_softmax, convert_attention_to_image
@@ -178,9 +179,9 @@ class ControlLogger(GenericLogger):
 
     def _control_training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # determine individual losses
-        individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_control"],
-                                                             batch["output_control"],
-                                                             reduction="none")
+        individual_losses_mse = F.mse_loss(predictions["output_control"],
+                                           batch["output_control"],
+                                           reduction="none")
         individual_losses_mse = torch.mean(individual_losses_mse, dim=0)
 
         # log individual losses
@@ -189,13 +190,13 @@ class ControlLogger(GenericLogger):
 
     def _control_validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # determine individual losses
-        individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_control"],
-                                                             batch["output_control"],
-                                                             reduction="none")
+        individual_losses_mse = F.mse_loss(predictions["output_control"],
+                                           batch["output_control"],
+                                           reduction="none")
         individual_losses_mse = torch.mean(individual_losses_mse, dim=0)
-        individual_losses_l1 = torch.nn.functional.l1_loss(predictions["output_control"],
-                                                           batch["output_control"],
-                                                           reduction="none")
+        individual_losses_l1 = F.l1_loss(predictions["output_control"],
+                                         batch["output_control"],
+                                         reduction="none")
         individual_losses_l1 = torch.mean(individual_losses_l1, dim=0)
 
         # TODO: maybe add back total l1 loss as well?
@@ -209,9 +210,12 @@ class ControlLogger(GenericLogger):
 
     def _control_validation_epoch_end(self, global_step, epoch, model, optimiser):
         # log individual losses
-        for n, l_mse, l_l1 in zip(self.control_names, self.control_partial_losses_val_mse, self.control_partial_losses_val_l1):
-            self.tb_writers[self.current_split].add_scalar(f"loss/val/output_control/{n}/mse", l_mse / self.counter_val, global_step)
-            self.tb_writers[self.current_split].add_scalar(f"loss/val/output_control/{n}/l1", l_l1 / self.counter_val, global_step)
+        for n, l_mse, l_l1 in zip(self.control_names, self.control_partial_losses_val_mse,
+                                  self.control_partial_losses_val_l1):
+            self.tb_writers[self.current_split].add_scalar(f"loss/val/output_control/{n}/mse", l_mse / self.counter_val,
+                                                           global_step)
+            self.tb_writers[self.current_split].add_scalar(f"loss/val/output_control/{n}/l1", l_l1 / self.counter_val,
+                                                           global_step)
 
         # reset the loss accumulators
         self.control_partial_losses_val_mse = torch.zeros_like(self.control_partial_losses_val_mse)
@@ -251,9 +255,9 @@ class GazeLogger(GenericLogger):
 
     def _gaze_training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # determine individual losses
-        individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_gaze"],
-                                                             batch["output_gaze"],
-                                                             reduction="none")
+        individual_losses_mse = F.mse_loss(predictions["output_gaze"],
+                                           batch["output_gaze"],
+                                           reduction="none")
         individual_losses_mse = torch.mean(individual_losses_mse, dim=0)
 
         # log individual losses
@@ -262,13 +266,13 @@ class GazeLogger(GenericLogger):
 
     def _gaze_validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # determine individual losses
-        individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_gaze"],
-                                                             batch["output_gaze"],
-                                                             reduction="none")
+        individual_losses_mse = F.mse_loss(predictions["output_gaze"],
+                                           batch["output_gaze"],
+                                           reduction="none")
         individual_losses_mse = torch.mean(individual_losses_mse, dim=0)
-        individual_losses_l1 = torch.nn.functional.l1_loss(predictions["output_gaze"],
-                                                           batch["output_gaze"],
-                                                           reduction="none")
+        individual_losses_l1 = F.l1_loss(predictions["output_gaze"],
+                                         batch["output_gaze"],
+                                         reduction="none")
         individual_losses_l1 = torch.mean(individual_losses_l1, dim=0)
 
         # accumulate individual losses
@@ -281,8 +285,10 @@ class GazeLogger(GenericLogger):
     def _gaze_validation_epoch_end(self, global_step, epoch, model, optimiser):
         # log individual losses
         for n, l_mse, l_l1 in zip(self.gaze_names, self.gaze_partial_losses_val_mse, self.gaze_partial_losses_val_l1):
-            self.tb_writers[self.current_split].add_scalar(f"loss/val/output_gaze/{n}/mse", l_mse / self.counter_val, global_step)
-            self.tb_writers[self.current_split].add_scalar(f"loss/val/output_gaze/{n}/l1", l_l1 / self.counter_val, global_step)
+            self.tb_writers[self.current_split].add_scalar(f"loss/val/output_gaze/{n}/mse", l_mse / self.counter_val,
+                                                           global_step)
+            self.tb_writers[self.current_split].add_scalar(f"loss/val/output_gaze/{n}/l1", l_l1 / self.counter_val,
+                                                           global_step)
 
         # reset the loss accumulators
         self.gaze_partial_losses_val_mse = torch.zeros_like(self.gaze_partial_losses_val_mse)
@@ -319,17 +325,31 @@ class AttentionLogger(GenericLogger):
 
         self.log_attention_val = True
 
+        self.loss_name = config["losses"]["output_attention"]
+
     def _attention_training_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # if len(partial_losses) > 1:
         # log the partial losses
         for ln, l in partial_losses.items():
-            if "attention" in ln:
-                self.tb_writers[self.current_split].add_scalar(f"loss/train/{ln}/kl", l.item(), global_step)
+            if isinstance(l, dict) and "attention" in ln:
+                for pln, pl in l.items():
+                    full_pln = "output_attention_{}".format(pln)
+                    self.tb_writers[self.current_split].add_scalar(
+                        f"loss/train/{full_pln}/{self.loss_name}", pl.item(), global_step)
+            elif "attention" in ln:
+                self.tb_writers[self.current_split].add_scalar(
+                    f"loss/train/{ln}/{self.loss_name}", l.item(), global_step)
 
     def _attention_validation_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # accumulate partial losses
         for ln, l in partial_losses.items():
-            if "attention" in ln:
+            if isinstance(l, dict) and "attention" in ln:
+                for pln, pl in l.items():
+                    full_pln = "output_attention_{}".format(pln)
+                    if full_pln not in self.attention_partial_losses_val_kl:
+                        self.attention_partial_losses_val_kl[full_pln] = torch.zeros_like(pl)
+                    self.attention_partial_losses_val_kl[full_pln] += pl
+            elif "attention" in ln:
                 if ln not in self.attention_partial_losses_val_kl:
                     self.attention_partial_losses_val_kl[ln] = torch.zeros_like(l)
                 self.attention_partial_losses_val_kl[ln] += l
@@ -338,7 +358,11 @@ class AttentionLogger(GenericLogger):
             # get the original from the batch and the predictions and plot them
             # probably only include the original of the uncropped attention map...
             images_original = convert_attention_to_image(batch["original"]["output_attention"])
-            images_prediction = convert_attention_to_image(image_softmax(predictions["output_attention"]),
+            attention_prediction = predictions["output_attention"]["final"] if isinstance(
+                predictions["output_attention"], dict) else predictions["output_attention"]
+            attention_prediction = image_softmax(attention_prediction) if self.loss_name != "ice" \
+                else torch.sigmoid(attention_prediction)
+            images_prediction = convert_attention_to_image(image_softmax(attention_prediction),
                                                            out_shape=images_original.shape[2:])
 
             self.tb_writers[self.current_split].add_images("attention/val/ground_truth", images_original,
@@ -352,7 +376,7 @@ class AttentionLogger(GenericLogger):
         # log individual losses
         for ln, l in self.attention_partial_losses_val_kl.items():
             self.tb_writers[self.current_split].add_scalar(
-                f"loss/val/{ln}/kl", l.item() / self.counter_val, global_step)
+                f"loss/val/{ln}/{self.loss_name}", l.item() / self.counter_val, global_step)
 
         # reset the loss accumulators
         for ln, l in self.attention_partial_losses_val_kl.items():
@@ -456,7 +480,8 @@ class CVControlLogger(ControlLogger):
         self.eoe_validation_errors[f"split_{self.current_split}"]["total"]["l1"].append(
             self.total_loss_val_l1.item() / self.counter_val)
 
-        for n, l_mse, l_l1 in zip(self.control_names, self.control_partial_losses_val_mse, self.control_partial_losses_val_l1):
+        for n, l_mse, l_l1 in zip(self.control_names, self.control_partial_losses_val_mse,
+                                  self.control_partial_losses_val_l1):
             self.eoe_validation_errors[f"split_{self.current_split}"][n]["mse"].append(l_mse.item() / self.counter_val)
             self.eoe_validation_errors[f"split_{self.current_split}"][n]["l1"].append(l_l1.item() / self.counter_val)
 
@@ -465,13 +490,13 @@ class CVControlLogger(ControlLogger):
 
     def final_training_pass_step_end(self, global_step, total_loss, partial_losses, batch, predictions):
         # determine individual losses
-        individual_losses_mse = torch.nn.functional.mse_loss(predictions["output_control"],
-                                                             batch["output_control"],
-                                                             reduction="none")
+        individual_losses_mse = F.mse_loss(predictions["output_control"],
+                                           batch["output_control"],
+                                           reduction="none")
         individual_losses_mse = torch.mean(individual_losses_mse, dim=0)
-        individual_losses_l1 = torch.nn.functional.l1_loss(predictions["output_control"],
-                                                           batch["output_control"],
-                                                           reduction="none")
+        individual_losses_l1 = F.l1_loss(predictions["output_control"],
+                                         batch["output_control"],
+                                         reduction="none")
         individual_losses_l1 = torch.mean(individual_losses_l1, dim=0)
 
         # accumulate total loss
@@ -497,7 +522,8 @@ class CVControlLogger(ControlLogger):
         self.eoe_training_errors[f"split_{self.current_split}"]["total"]["l1"].append(
             self.total_loss_train_l1.item() / self.counter_train)
 
-        for n, l_mse, l_l1 in zip(self.control_names, self.individual_losses_train_mse, self.individual_losses_train_l1):
+        for n, l_mse, l_l1 in zip(self.control_names, self.individual_losses_train_mse,
+                                  self.individual_losses_train_l1):
             self.eoe_training_errors[f"split_{self.current_split}"][n]["mse"].append(l_mse.item() / self.counter_train)
             self.eoe_training_errors[f"split_{self.current_split}"][n]["l1"].append(l_l1.item() / self.counter_train)
 

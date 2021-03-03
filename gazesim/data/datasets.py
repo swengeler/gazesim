@@ -16,7 +16,7 @@ from gazesim.data.constants import STATISTICS
 
 class GenericDataset(Dataset):
 
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         self.data_root = config["data_root"]
         # TODO: this needs to change if we want multiple possible outputs... should this be a list? or should
         #  there be specific inputs for control_gt, attention_gt etc. => I think this would be better actually
@@ -91,7 +91,7 @@ class GenericDataset(Dataset):
 
 class StackedGenericDataset(GenericDataset):
 
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         super().__init__(config, split, cv_split, training)
 
         self.stack_size = config["stack_size"]
@@ -134,7 +134,7 @@ class StackedGenericDataset(GenericDataset):
 
 class ToControlDataset(StackedGenericDataset):
 
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         super().__init__(config, split, cv_split, training)
 
         self.control_output_name = config["control_ground_truth"]
@@ -175,7 +175,7 @@ class ToControlDataset(StackedGenericDataset):
 
 class ToAttentionDataset(GenericDataset):
 
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         super().__init__(config, split, cv_split, training)
 
         self.attention_output_name = config["attention_ground_truth"]
@@ -240,13 +240,14 @@ class ToAttentionDataset(GenericDataset):
 
 class ToGazeDataset(StackedGenericDataset):
 
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         super().__init__(config, split, cv_split, training)
 
         self.output_columns = []
 
         # load additional information and put it in the index
-        ground_truth = pd.read_csv(os.path.join(self.data_root, "index", f"frame_mean_gaze_gt.csv"))
+        ground_truth = pd.read_csv(os.path.join(self.data_root, "index", "{}.csv".format(
+            config.get("gaze_ground_truth", "frame_mean_gaze_gt"))))
         ground_truth = ground_truth.loc[self.sub_index]
         ground_truth = ground_truth.reset_index(drop=True)
         for col in ground_truth:
@@ -273,10 +274,16 @@ class ToGazeDataset(StackedGenericDataset):
 
         return gaze
 
+    def __getitem__(self, item):
+        gaze = self._get_gaze(item)
+        label = self.index["label"].iloc[item]
+        out = {"output_gaze": gaze, "label_high_level": label}
+        return out
+
 
 class ImageDataset(GenericDataset):
 
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         super().__init__(config, split, cv_split, training)
 
         self.video_input_names = config["input_video_names"]
@@ -388,7 +395,7 @@ class ImageDataset(GenericDataset):
 
 class StackedImageDataset(ImageDataset):
 
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         super().__init__(config, split, cv_split, training)
 
         self.stack_size = config["stack_size"]
@@ -462,7 +469,7 @@ class StackedImageDataset(ImageDataset):
 
 class StateDataset(GenericDataset):
 
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         super().__init__(config, split, cv_split, training)
 
         self.state_input_names = config["drone_state_names"]
@@ -486,7 +493,7 @@ class StateDataset(GenericDataset):
 #  to be stacked and if there's only one frame, you can just squeeze out that extra dimension?
 class FeatureTrackDataset(StackedGenericDataset):
 
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         super().__init__(config, split, cv_split, training)
 
         self.feature_track_name = config["feature_track_name"]
@@ -570,7 +577,7 @@ class FeatureTrackDataset(StackedGenericDataset):
 
 class ReferenceDataset(StackedGenericDataset):
     # how is this different from StateDataset? not really sure... might even replace that
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         super().__init__(config, split, cv_split, training)
 
         self.reference_name = config["reference_name"]
@@ -629,7 +636,7 @@ class StateEstimateDataset(StackedGenericDataset):
         "omega_z": 0.1,
     }
 
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         super().__init__(config, split, cv_split, training)
 
         self.state_estimate_name = config["state_estimate_name"]
@@ -1147,7 +1154,7 @@ class StackedImageToAttentionDataset(Dataset):
 class DrEYEveDataset(StackedImageDataset, ToAttentionDataset):
     # TODO: since the way of dealing with the transforms is pretty annoying, this might be for the best
 
-    def __init__(self, config, split, cv_split=-1, training=True):
+    def __init__(self, config: dict, split: str, cv_split: int = -1, training: bool = True):
         # TODO: should maybe be set in config and just be asserts here?
         config["dreyeve_transforms"] = True
         config["stack_size"] = 16

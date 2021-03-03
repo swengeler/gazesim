@@ -19,174 +19,177 @@ class HighResAttention(LoadableModule):
         self.half_res_size = (np.floor((self.full_res_size - 3 + 2) / 2) + 1).astype(np.int32)
         self.quarter_res_size = (np.floor((self.half_res_size - 3 + 2) / 2) + 1).astype(np.int32)
 
+        # scale factor for increasing the depth of the feature maps
+        self.csf = config["channel_scale_factor"]
+
         ##########################
         # FULL RESOLUTION BLOCKS #
         ##########################
         self.full_res_block_0 = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=4, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=4, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=3, out_channels=4 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=4 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         self.full_res_block_1 = nn.Sequential(
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         self.full_res_block_2 = nn.Sequential(
-            nn.Conv2d(in_channels=24, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=24 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         self.full_res_block_3 = nn.Sequential(
-            nn.Conv2d(in_channels=56, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=56 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         #######################################
         # FULL RESOLUTION DOWNSAMPLING LAYERS #
         #######################################
         self.full_to_half_block_0 = nn.Sequential(
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.ReLU(),
         )
         self.full_to_half_block_1 = nn.Sequential(
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.ReLU(),
         )
         self.full_to_half_block_2 = nn.Sequential(
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.ReLU(),
         )
         self.full_to_half_block_3 = nn.Sequential(
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         self.full_to_quarter_block_0 = nn.Sequential(
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(4, 4), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(4, 4), padding=(1, 1)),
+            nn.ReLU(),
         )
         self.full_to_quarter_block_1 = nn.Sequential(
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(4, 4), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(4, 4), padding=(1, 1)),
+            nn.ReLU(),
         )
         self.full_to_quarter_block_2 = nn.Sequential(
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(4, 4), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(4, 4), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         self.full_to_eighth_block_0 = nn.Sequential(
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(8, 8), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(8, 8), padding=(1, 1)),
+            nn.ReLU(),
         )
         self.full_to_eighth_block_1 = nn.Sequential(
-            nn.Conv2d(in_channels=8, out_channels=8, kernel_size=(3, 3), stride=(8, 8), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(8, 8), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         ###############################
         # FULL RESOLUTION FINAL LAYER #
         ###############################
         self.full_final = nn.Sequential(
-            nn.Conv2d(in_channels=120, out_channels=8, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=120 * self.csf, out_channels=8 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         ##########################
         # HALF RESOLUTION BLOCKS #
         ##########################
         self.half_res_block_0 = nn.Sequential(
-            nn.Conv2d(in_channels=8, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=8 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         self.half_res_block_1 = nn.Sequential(
-            nn.Conv2d(in_channels=24, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=24 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         self.half_res_block_2 = nn.Sequential(
-            nn.Conv2d(in_channels=56, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=56 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         #######################################
         # HALF RESOLUTION DOWNSAMPLING LAYERS #
         #######################################
         self.half_to_quarter_block_0 = nn.Sequential(
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.ReLU(),
         )
         self.half_to_quarter_block_1 = nn.Sequential(
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.ReLU(),
         )
         self.half_to_quarter_block_2 = nn.Sequential(
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         self.half_to_eighth_block_0 = nn.Sequential(
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(4, 4), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(4, 4), padding=(1, 1)),
+            nn.ReLU(),
         )
         self.half_to_eighth_block_1 = nn.Sequential(
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), stride=(4, 4), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=16 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(4, 4), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         ####################################
@@ -198,49 +201,49 @@ class HighResAttention(LoadableModule):
         # HALF RESOLUTION FINAL LAYER #
         ###############################
         self.half_final = nn.Sequential(
-            nn.Conv2d(in_channels=120, out_channels=16, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=120 * self.csf, out_channels=16 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         #############################
         # QUARTER RESOLUTION BLOCKS #
         #############################
         self.quarter_res_block_0 = nn.Sequential(
-            nn.Conv2d(in_channels=24, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=24 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         self.quarter_res_block_1 = nn.Sequential(
-            nn.Conv2d(in_channels=56, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=56 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         ##########################################
         # QUARTER RESOLUTION DOWNSAMPLING LAYERS #
         ##########################################
         self.quarter_to_eighth_block_0 = nn.Sequential(
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.ReLU(),
         )
         self.quarter_to_eighth_block_1 = nn.Sequential(
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=32 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(2, 2), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         ########################################
@@ -253,24 +256,24 @@ class HighResAttention(LoadableModule):
         # QUARTER RESOLUTION FINAL LAYER #
         ##################################
         self.quarter_final = nn.Sequential(
-            nn.Conv2d(in_channels=120, out_channels=32, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=120 * self.csf, out_channels=32 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         ###########################
         # EIGHTH RESOLUTION BLOCK #
         ###########################
         self.eighth_res_block_0 = nn.Sequential(
-            nn.Conv2d(in_channels=56, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=56 * self.csf, out_channels=64 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64 * self.csf, out_channels=64 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64 * self.csf, out_channels=64 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64 * self.csf, out_channels=64 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=64 * self.csf, out_channels=64 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         #######################################
@@ -284,15 +287,16 @@ class HighResAttention(LoadableModule):
         # EIGHTH RESOLUTION FINAL LAYER #
         #################################
         self.eighth_final = nn.Sequential(
-            nn.Conv2d(in_channels=120, out_channels=64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
-            nn.LeakyReLU(),
+            nn.Conv2d(in_channels=120 * self.csf, out_channels=64 * self.csf, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)),
+            nn.ReLU(),
         )
 
         ########################
         # COMBINED FINAL LAYER #
         ########################
         self.combined_final = nn.Sequential(
-            nn.Conv2d(in_channels=120, out_channels=1, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0)),
+            nn.Conv2d(in_channels=120 * self.csf, out_channels=1, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0)),
+            # nn.Hardtanh() => really not sure what this is supposed to accomplish
             # TODO: potentially activation layer?
         )
 
@@ -383,8 +387,11 @@ if __name__ == "__main__":
     device = torch.device("cuda:0" if use_cuda else "cpu")
 
     sample = {
-        "input_image_0": torch.zeros((1, 3, 450, 600)).to(device),
+        "input_image_0": torch.zeros((1, 3, 300, 400)).to(device),
     }
 
-    net = HighResAttention({"resize": 450}).to(device)
+    net = HighResAttention({"resize": 300}).to(device)
     result = net(sample)
+
+    num_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    print("Number of parameters for high-res network:", num_params)

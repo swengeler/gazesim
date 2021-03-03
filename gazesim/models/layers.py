@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 
+from gazesim.models.utils import image_softmax
+
 
 class LoadableModule(nn.Module):
 
@@ -33,3 +35,12 @@ class Conv1dSamePadding(nn.Conv1d):
         x = super(Conv1dSamePadding, self).forward(x)
         x = x[..., :x_shape_last_dim]
         return x
+
+
+class ImageBCELoss(torch.nn.BCEWithLogitsLoss):
+
+    def forward(self, prediction, target):
+        prediction = torch.reshape(prediction, (prediction.shape[0], -1))
+        target = torch.reshape(target, (target.shape[0], -1))
+        loss = super(ImageBCELoss, self).forward(prediction, target)
+        return loss

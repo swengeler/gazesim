@@ -281,6 +281,79 @@ class FrameMeanGazeGT(DataGenerator):
         print("Saved frame mean gaze GT for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
 
 
+class ShuffledRandomFrameMeanGazeGT(DataGenerator):
+
+    NAME = "shuffled_random_frame_mean_gaze_gt"
+
+    def __init__(self, config):
+        super().__init__(config)
+
+        # load dataframes
+        self.frame_index = pd.read_csv(os.path.join(config["data_root"], "index", "frame_index.csv"))
+        self.fmg_gt_or = pd.read_csv(os.path.join(config["data_root"], "index", "frame_mean_gaze_gt.csv"))
+        self.fmg_gt = self.fmg_gt_or.copy()
+        self.fmg_gt_path = os.path.join(config["data_root"], "index", f"{self.__class__.NAME}.csv")
+
+        np.random.seed(config["random_seed"])
+
+    def compute_gt(self, run_dir):
+        start = time()
+
+        # get info about the current run
+        run_info = parse_run_info(run_dir)
+        subject = run_info["subject"]
+        run = run_info["run"]
+        match_index = (self.frame_index["subject"] == subject) & (self.frame_index["run"] == run)
+
+        if subject < 6:
+            print("WARNING: Data from faulty subject will not be processed for directory '{}'.".format(run_dir))
+            return
+
+        # load data frames
+        df_screen = pd.read_csv(os.path.join(run_dir, "screen_timestamps.csv"))
+        df_laps = pd.read_csv(os.path.join(run_dir, "laptimes.csv"))
+
+        # determine intervals
+        intervals = []
+        for _, row in df_laps.iterrows():
+            if len(intervals) > 0 and abs(intervals[-1][1] - row["ts_start"]) > 1e-6:
+                intervals.append((intervals[-1][1], row["ts_start"]))
+            intervals.append((row["ts_start"], row["ts_end"]))
+        if len(intervals) == 0:
+            intervals.append((df_screen["ts"].iloc[0], df_screen["ts"].iloc[-1]))
+        else:
+            if df_screen["ts"].iloc[0] < intervals[0][0]:
+                intervals.insert(0, (df_screen["ts"].iloc[0], intervals[0][0]))
+            if df_screen["ts"].iloc[-1] > intervals[-1][1]:
+                intervals.append((intervals[-1][1], df_screen["ts"].iloc[-1]))
+
+        # loop through the intervals
+        progress_bar = tqdm(total=len(intervals))
+        new_values = []
+        for itv_idx, (itv_start, itv_end) in enumerate(intervals):
+            # get the frames
+            if itv_idx != len(intervals) - 1:
+                match_upper = df_screen["ts"] < itv_end
+            else:
+                match_upper = df_screen["ts"] <= itv_end
+            frames = df_screen.loc[(itv_start <= df_screen["ts"]) & match_upper, "frame"].values
+
+            # shuffle the frames
+            np.random.shuffle(frames)
+
+            # loop through them in that order
+            for f in frames:
+                # get values at current position and append them to the list in new order
+                current_values = self.fmg_gt_or.loc[match_index & (self.frame_index["frame"] == f)].values[0]
+                new_values.append(current_values)
+                progress_bar.update(1)
+
+        self.fmg_gt.loc[match_index, :] = np.array(new_values)
+        self.fmg_gt.to_csv(os.path.join(self.fmg_gt_path), index=False)
+
+        print("Saved shuffled random frame mean gaze ground-truth for directory '{}' after {:.2f}s.".format(run_dir, time() - start))
+
+
 class RandomGazeGT(DataGenerator):
 
     NAME = "random_gaze_gt"
@@ -1345,6 +1418,8 @@ def resolve_gt_class(data_type: str) -> Type[DataGenerator]:
         return RandomGazeGT
     elif data_type == "shuffled_random_gaze_gt":
         return ShuffledRandomGazeGT
+    elif data_type == "shuffled_random_frame_mean_gaze_gt":
+        return ShuffledRandomFrameMeanGazeGT
     elif data_type == "drone_state_frame_mean":
         return DroneStateFrameMean
     elif data_type == "drone_state_original":
@@ -1382,7 +1457,7 @@ if __name__ == "__main__":
                         choices=["moving_window_frame_mean_gt", "drone_control_frame_mean_gt", "drone_control_mpc_gt",
                                  "drone_control_frame_mean_raw_gt", "random_gaze_gt", "shuffled_random_gaze_gt",
                                  "drone_state_frame_mean", "drone_state_original", "drone_state_mpc", "optical_flow",
-                                 "predicted_gaze_gt", "frame_mean_gaze_gt"],
+                                 "predicted_gaze_gt", "frame_mean_gaze_gt", "shuffled_random_frame_mean_gaze_gt"],
                         help="The method to use to compute the ground-truth.")
     parser.add_argument("-di", "--directory_index", type=pair, default=None)
     parser.add_argument("-rs", "--random_seed", type=int, default=127,

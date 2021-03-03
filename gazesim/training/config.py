@@ -45,6 +45,7 @@ DEFAULT_VALUES = {
     "model_load_path": None,
     "no_control_activation": False,
     "gaze_activation": False,
+    "channel_scale_factor": 1,
 
     "mode": "train",
     "gpu": 0,

@@ -64,13 +64,27 @@ def train(config, device):
             total_loss = None
             partial_losses = {}
             for output in predictions:
-                current_prediction = resolve_output_processing_func(output)(predictions[output])
-                current_loss = loss_functions[output](current_prediction, batch[output])
-                if total_loss is None:
-                    total_loss = current_loss
+                if isinstance(predictions[output], dict):
+                    # this is very ugly, but for now it should work for the multi-scale attention model
+                    partial_losses[output] = {}
+                    for partial_output in predictions[output]:
+                        current_prediction = resolve_output_processing_func(
+                            output, config["losses"][output])(predictions[output][partial_output])
+                        current_loss = loss_functions[output](current_prediction, batch[output])
+                        if total_loss is None:
+                            total_loss = current_loss
+                        else:
+                            total_loss += current_loss
+                        partial_losses[output][partial_output] = current_loss
                 else:
-                    total_loss += current_loss
-                partial_losses[output] = total_loss
+                    current_prediction = resolve_output_processing_func(
+                        output, config["losses"][output])(predictions[output])
+                    current_loss = loss_functions[output](current_prediction, batch[output])
+                    if total_loss is None:
+                        total_loss = current_loss
+                    else:
+                        total_loss += current_loss
+                    partial_losses[output] = current_loss
             total_loss.backward()
             optimiser.step()
 
@@ -99,13 +113,27 @@ def train(config, device):
                         total_val_loss = None
                         partial_val_losses = {}
                         for output in val_predictions:
-                            current_prediction = resolve_output_processing_func(output)(val_predictions[output])
-                            current_loss = loss_functions[output](current_prediction, val_batch[output])
-                            if total_val_loss is None:
-                                total_val_loss = current_loss
+                            if isinstance(val_predictions[output], dict):
+                                # this is very ugly, but for now it should work for the multi-scale attention model
+                                partial_val_losses[output] = {}
+                                for partial_output in val_predictions[output]:
+                                    current_prediction = resolve_output_processing_func(
+                                        output, config["losses"][output])(val_predictions[output][partial_output])
+                                    current_loss = loss_functions[output](current_prediction, val_batch[output])
+                                    if total_val_loss is None:
+                                        total_val_loss = current_loss
+                                    else:
+                                        total_val_loss += current_loss
+                                    partial_val_losses[output] = current_loss
                             else:
-                                total_val_loss += current_loss
-                            partial_val_losses[output] = current_loss
+                                current_prediction = resolve_output_processing_func(
+                                    output, config["losses"][output])(val_predictions[output])
+                                current_loss = loss_functions[output](current_prediction, val_batch[output])
+                                if total_val_loss is None:
+                                    total_val_loss = current_loss
+                                else:
+                                    total_val_loss += current_loss
+                                partial_val_losses[output] = current_loss
 
                         # tracking the loss in the logger
                         # val_scalar_loss = val_loss.item()
@@ -375,7 +403,8 @@ if __name__ == "__main__":
                                  "codevilla_multi_head", "codevilla_dual_branch", "codevilla_no_state", "resnet_state",
                                  "resnet", "resnet_larger", "resnet_state_larger", "resnet_larger_att_ctrl",
                                  "state_only", "dreyeve_branch", "resnet_att", "resnet_larger_gru", "ue4sim", "dda",
-                                 "high_res_att", "simple_att", "resnet_gaze", "resnet_larger_gaze"],
+                                 "high_res_att", "simple_att", "resnet_gaze", "resnet_larger_gaze",
+                                 "direct_supervision"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,  # TODO: maybe adjust for dreyeve net
                         help="Path to load a model checkpoint from (including information about the "
@@ -386,7 +415,8 @@ if __name__ == "__main__":
     parser.add_argument("-ga", "--gaze_activation", action="store_true",
                         help="Whether or not to use an activation function (tanh) "
                              "for the output of the gaze prediction networks.")
-    # TODO: should there be a choice between activation functions? e.g. ReLU for thrust?
+    parser.add_argument("-csf", "--channel_scale_factor", type=int,
+                        help="Factor by which to  scale the number of channels for the high-resolution attention model.")
 
     # arguments related to training
     parser.add_argument("-md", "--mode", type=str, choices=["train", "cv"],
