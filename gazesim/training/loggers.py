@@ -43,14 +43,18 @@ class Logger:
         if self.splits == 1:
             self.tensorboard_dirs.append(os.path.join(self.log_dir, "tensorboard"))
             self.checkpoint_dirs.append(os.path.join(self.log_dir, "checkpoints"))
-            os.makedirs(self.tensorboard_dirs[-1])
-            os.makedirs(self.checkpoint_dirs[-1])
+            if not os.path.exists(self.tensorboard_dirs[-1]):
+                os.makedirs(self.tensorboard_dirs[-1])
+            if not os.path.exists(self.checkpoint_dirs[-1]):
+                os.makedirs(self.checkpoint_dirs[-1])
         else:
             for i in range(self.splits):
                 self.tensorboard_dirs.append(os.path.join(self.log_dir, "tensorboard", f"split_{i}"))
                 self.checkpoint_dirs.append(os.path.join(self.log_dir, "checkpoints", f"split_{i}"))
-                os.makedirs(self.tensorboard_dirs[-1])
-                os.makedirs(self.checkpoint_dirs[-1])
+                if not os.path.exists(self.tensorboard_dirs[-1]):
+                    os.makedirs(self.tensorboard_dirs[-1])
+                if not os.path.exists(self.checkpoint_dirs[-1]):
+                    os.makedirs(self.checkpoint_dirs[-1])
 
         # create tensorboard writers
         self.tb_writers = []
