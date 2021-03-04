@@ -6,13 +6,12 @@
 # I think this should be separate from gaze predictions or at least there should be 2 different functions?
 
 import os
-import json
 import numpy as np
 import pandas as pd
-import matplotlib.style as style
 import cv2
 import torch
 import scipy.ndimage
+import time
 
 from tqdm import tqdm
 from scipy.stats import pearsonr
@@ -107,6 +106,9 @@ def load(config):
 
     models, model_configs, model_names = {}, {}, []
     for mlp in config["model_load_path"]:
+        print("Loading model from '{}'".format(mlp))
+        start = time.time()
+
         model, model_config = load_model(mlp, config["gpu"], return_config=True)
 
         # get the model name (there could be duplicates in theory, would have to change if one wanted to test that)
@@ -125,6 +127,8 @@ def load(config):
 
         # also store information about the load path
         model_config["eval_model_load_path"] = mlp
+
+        print("Loaded model from '{}' after {}s".format(mlp, time.time() - start))
 
     return models, model_configs, model_names, device
 
