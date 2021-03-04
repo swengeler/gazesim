@@ -123,6 +123,9 @@ def load(config):
         model_config["split_config"] = config["split_config"]
         model_configs[model_name] = model_config
 
+        # also store information about the load path
+        model_config["eval_model_load_path"] = mlp
+
     return models, model_configs, model_names, device
 
 
@@ -313,6 +316,9 @@ def evaluate_attention(config):
             print("\n-----------------------------------------------------"
                   "------------------------------------------\n", file=f)
         for mn, model_res in total_loss.items():
+            print("Model load path: {}\n".format(model_configs[mn]["eval_model_load_path"]))
+            if config["output_file"] is not None:
+                print("Model load path: {}\n".format(model_configs[mn]["eval_model_load_path"]), file=f)
             for loss, loss_res in model_res.items():
                 for mod, mod_res in loss_res.items():
                     if loss == "kl":
@@ -541,6 +547,9 @@ def evaluate_gaze(config):
             print("\n-----------------------------------------------------"
                   "------------------------------------------\n", file=f)
         for mn, model_res in total_loss.items():
+            print("Model load path: {}\n".format(model_configs[mn]["eval_model_load_path"]))
+            if config["output_file"] is not None:
+                print("Model load path: {}\n".format(model_configs[mn]["eval_model_load_path"]), file=f)
             for loss, loss_res in model_res.items():
                 for mod, mod_res in loss_res.items():
                     for pn, partial in mod_res.items():
