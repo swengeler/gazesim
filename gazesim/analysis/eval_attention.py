@@ -12,6 +12,7 @@ import pandas as pd
 import matplotlib.style as style
 import cv2
 import torch
+import scipy.ndimage
 
 from tqdm import tqdm
 from scipy.stats import pearsonr
@@ -163,23 +164,8 @@ def prepare_data(config, model_configs):
 
 
 def evaluate_attention(config):
-    # TODO: structure losses and stuff better and load different attention models...
-
     # load model and config
     models, model_configs, model_names, device = load(config)
-
-    """
-    models = {
-        "resnet_att": lambda x: x,
-        "high_res_att": lambda x: x,
-    }
-    model_configs = {
-        "resnet_att": {
-            "losses": "cool"
-        },
-        "high_res_att": lambda x: x,
-    }
-    """
 
     # prepare the data(sets)
     datasets_gt, datasets_random_gaze, mean_masks = prepare_data(config, model_configs)
@@ -188,31 +174,13 @@ def evaluate_attention(config):
     assert len(set([len(ds) for ds in datasets_gt.values()] + [len(ds) for ds in datasets_random_gaze.values()])) <= 1, \
         "GT and random gaze dataset don't have the same length."
     dataset_length = len(list(datasets_gt.values())[0])
-    # TODO: actually, they all need to have the same length
 
     # define loss functions
-    """
-    loss_func_mse = torch.nn.MSELoss()
-    loss_func_kl = torch.nn.KLDivLoss(reduction="batchmean")
-    loss_func_cc = pearson_corr_coeff
-    """
     loss_funcs = {
         "mse": torch.nn.MSELoss(),
         "kl": torch.nn.KLDivLoss(reduction="batchmean"),
         "cc": pearson_corr_coeff,
     }
-
-    """
-    total_loss_kl_pred = 0
-    total_loss_kl_random_gaze = 0
-    total_loss_kl_mean_mask = 0
-    total_loss_mse_pred = 0
-    total_loss_mse_random_gaze = 0
-    total_loss_mse_mean_mask = 0
-    total_loss_cc_pred = 0
-    total_loss_cc_random_gaze = 0
-    total_loss_cc_mean_mask = 0
-    """
 
     total_loss = {
         mn: {
@@ -223,12 +191,6 @@ def evaluate_attention(config):
             } for loss in loss_funcs
         } for mn in model_names
     }
-
-    """
-    kl_not_inf_pred = 0
-    kl_not_inf_random_gaze = 0
-    kl_not_inf_mean_mask = 0
-    """
 
     kl_not_inf = {
         mn: {
@@ -242,9 +204,6 @@ def evaluate_attention(config):
     num_batches = 0
     for start_frame in tqdm(range(0, dataset_length, config["batch_size"])):
         # construct a batch (maybe just repeat mean map if we even use it)
-        batch_gt = []
-        batch_random_gaze = []
-        batch_mean_mask = []
         batch = {
             mn: {
                 "prediction": [],
@@ -255,13 +214,6 @@ def evaluate_attention(config):
         for in_batch_idx in range(start_frame, start_frame + config["batch_size"]):
             if in_batch_idx >= dataset_length:
                 break
-            # TODO: use the different datasets
-            # also use the multiple mean masks? I guess, could compare that stuff as well....
-            """
-            batch_gt.append(dataset_gt[in_batch_idx])
-            batch_random_gaze.append(dataset_random_gaze[in_batch_idx])
-            batch_mean_mask.append(mean_mask)
-            """
             for mn, mb in batch.items():
                 mb["prediction"].append(datasets_gt[mn][in_batch_idx])
                 mb["random_gaze"].append(datasets_random_gaze[mn][in_batch_idx])
@@ -272,15 +224,6 @@ def evaluate_attention(config):
             mb["prediction"] = to_device(to_batch(mb["prediction"]), device)
             mb["random_gaze"] = to_device(to_batch(mb["random_gaze"]), device)
             mb["mean_mask"] = to_device(to_batch(mb["mean_mask"]), device)
-
-        """
-        batch_gt = to_device(to_batch(batch_gt), device)
-        batch_random_gaze = to_device(to_batch(batch_random_gaze), device)
-        batch_mean_mask = to_device(to_batch(batch_mean_mask), device)
-        """
-
-        # first get the ground-truth, which will be used with all predictions
-        # attention_gt = batch_gt["output_attention"]
 
         # for each model, get the actual attention map (normalised etc.) and an "unactivated" version for KL-div
         attention_predictions = {}
@@ -304,37 +247,42 @@ def evaluate_attention(config):
             # first get the prediction
             output = models[mn](batch[mn]["prediction"])
 
+            if isinstance(output["output_attention"], dict):
+                attention_pred = output["output_attention"]["final"]
+            else:
+                attention_pred = output["output_attention"]
+
             # decide what to do with the prediction depending on the loss I guess
             if model_configs[mn]["losses"]["output_attention"] == "kl":
                 # output is log_attention
-                attention_predictions[mn]["prediction"]["log_attention"] = image_log_softmax(output["output_attention"])
+                attention_predictions[mn]["prediction"]["log_attention"] = image_log_softmax(attention_pred)
 
                 # need to convert to actual attention map for MSE/CC
-                attention_predictions[mn]["prediction"]["attention"] = image_softmax(
-                    attention_predictions[mn]["prediction"]["log_attention"])
+                attention_predictions[mn]["prediction"]["attention"] = image_softmax(attention_pred)
             elif model_configs[mn]["losses"]["output_attention"] == "ice":
+                """
+                # maybe use this? but then the order stuff would be messed up
                 output_processing_func = {
                     "kl": image_softmax,
                     "ice": torch.sigmoid,
                     "mse": lambda x: x,
                 }
+                """
                 # output is pre-sigmoid logits
-                if isinstance(output["output_attention"], dict):
-                    attention_predictions[mn]["prediction"]["attention"] = torch.sigmoid(
-                        output["output_attention"]["final"])
-                else:
-                    attention_predictions[mn]["prediction"]["attention"] = torch.sigmoid(output["output_attention"])
+                attention_predictions[mn]["prediction"]["attention"] = torch.sigmoid(attention_pred)
                 # TODO: might need to image_softmax this though...
 
                 # need to first convert to log, softmax, then log again? or is just log-softmax enough
                 # => question is whether softmax does anything different depending on whether the inputs
                 #    are logits for sigmoid activation or actual probability values...
-                if isinstance(output["output_attention"], dict):
-                    attention_predictions[mn]["prediction"]["log_attention"] = image_log_softmax(
-                        output["output_attention"]["final"])
-                else:
-                    attention_predictions[mn]["prediction"]["log_attention"] = image_log_softmax(
-                        output["output_attention"])
+                # attention_predictions[mn]["prediction"]["log_attention"] = image_log_softmax(attention_pred)
+                attention_predictions[mn]["prediction"]["log_attention"] = torch.log(attention_pred)
+            elif model_configs[mn]["losses"]["output_attention"] == "mse":
+                attention_predictions[mn]["prediction"]["attention"] = attention_pred
+
+                # TODO: shouldn't this really just be the log? but that wouldn't necessarily give a valid distro right?
+                # attention_predictions[mn]["prediction"]["log_attention"] = image_log_softmax(attention_pred)
+                attention_predictions[mn]["prediction"]["log_attention"] = torch.log(attention_pred)
 
         # compute the losses between all the models and the ground-truth
         for mn, pred in attention_predictions.items():
@@ -353,65 +301,6 @@ def evaluate_attention(config):
                         else:
                             current_loss = loss_f(mod_pred["attention"], pred["gt"]).item()
                             total_loss[mn][loss][mod] += current_loss
-
-        """
-        # get the attention ground-truth from the batch
-        attention_random_gaze = batch_random_gaze["output_attention"]
-        # TODO: need to transform this more I guess...
-        # print(type(attention_gt), attention_gt.dtype)
-        # print(type(attention_random_gaze), attention_random_gaze.dtype)
-        attention_random_gaze_no_activation = torch.log(attention_random_gaze)
-        attention_mean_mask = batch_mean_mask["output_attention"]
-        attention_mean_mask_no_activation = torch.log(attention_mean_mask)
-
-        # print(attention_gt.view(tuple(attention_gt.shape[:-2]) + (-1,)).sum(-1))
-        # print(attention_random_gaze.view(tuple(attention_random_gaze.shape[:-2]) + (-1,)).sum(-1))
-        #
-        # print(attention_gt.max(), attention_gt.mean())
-
-        # compute the attention prediction
-        output = model(batch_gt)
-        attention_pred_no_activation = image_log_softmax(output["output_attention"])
-        attention_pred = image_softmax(attention_pred_no_activation)
-        # print(attention_pred.shape)
-        # print(attention_pred.view(tuple(attention_pred.shape[:-2]) + (-1,)).sum(-1))
-
-        # compute the losses between the "actual" ground-truth and the other stuff
-        loss_kl_pred = loss_func_kl(attention_pred_no_activation, attention_gt).item()
-        loss_kl_random_gaze = loss_func_kl(attention_random_gaze_no_activation, attention_gt).item()
-        loss_kl_mean_mask = loss_func_kl(attention_mean_mask_no_activation, attention_gt).item()
-
-        loss_mse_pred = loss_func_mse(attention_pred, attention_gt).item()
-        loss_mse_random_gaze = loss_func_mse(attention_random_gaze, attention_gt).item()
-        loss_mse_mean_mask = loss_func_mse(attention_mean_mask, attention_gt).item()
-
-        loss_cc_pred = loss_func_cc(attention_pred, attention_gt)
-        loss_cc_random_gaze = loss_func_cc(attention_random_gaze, attention_gt)
-        loss_cc_mean_mask = loss_func_cc(attention_mean_mask, attention_gt)
-
-        # print(loss_kl_pred, loss_kl_random_gaze)
-        # print(loss_mse_pred, loss_mse_random_gaze)
-        # exit()
-
-        # sum losses
-        if not np.isinf(loss_kl_pred):
-            total_loss_kl_pred += loss_kl_pred
-            kl_not_inf_pred += 1
-        if not np.isinf(loss_kl_random_gaze):
-            total_loss_kl_random_gaze += loss_kl_random_gaze
-            kl_not_inf_random_gaze += 1
-        if not np.isinf(loss_kl_mean_mask):
-            total_loss_kl_mean_mask += loss_kl_mean_mask
-            kl_not_inf_mean_mask += 1
-
-        total_loss_mse_pred += loss_mse_pred
-        total_loss_mse_random_gaze += loss_mse_random_gaze
-        total_loss_mse_mean_mask += loss_mse_mean_mask
-
-        total_loss_cc_pred += loss_cc_pred
-        total_loss_cc_random_gaze += loss_cc_random_gaze
-        total_loss_cc_mean_mask += loss_cc_mean_mask
-        """
 
         num_batches += 1
 
@@ -452,33 +341,228 @@ def evaluate_attention(config):
                 print("-----------------------------------------------------"
                       "------------------------------------------\n", file=f)
 
-    """
-    if kl_not_inf_pred > 0:
-        print("Average KL-divergence loss for attention model: {}".format(total_loss_kl_pred / kl_not_inf_pred))
-    else:
-        print("Average KL-divergence loss for attention model is infinite.")
-
-    if kl_not_inf_random_gaze > 0:
-        print("Average KL-divergence loss for shuffled GT: {}".format(total_loss_kl_random_gaze / kl_not_inf_random_gaze))
-    else:
-        print("Average KL-divergence loss for shuffled GT is infinite.")
-
-    if kl_not_inf_mean_mask > 0:
-        print("Average KL-divergence loss for mean mask: {}".format(total_loss_kl_mean_mask / kl_not_inf_mean_mask))
-    else:
-        print("Average KL-divergence loss for mean mask is infinite.")
-
-    print("\nAverage MSE loss for attention model: {}".format(total_loss_mse_pred / num_batches))
-    print("Average MSE loss for shuffled GT: {}".format(total_loss_mse_random_gaze / num_batches))
-    print("Average MSE loss for mean mask: {}".format(total_loss_mse_mean_mask / num_batches))
-
-    print("\nAverage CC loss for attention model: {}".format(total_loss_cc_pred / num_batches))
-    print("Average CC loss for shuffled GT: {}".format(total_loss_cc_random_gaze / num_batches))
-    print("Average CC loss for mean mask: {}".format(total_loss_cc_mean_mask / num_batches))
-    """
-
 
 def evaluate_gaze(config):
+    # load model and config
+    models, model_configs, model_names, device = load(config)
+
+    # prepare the data(sets)
+    datasets_gt, datasets_random_gaze, mean_masks = prepare_data(config, model_configs)
+
+    # make sure they have the same number of frames
+    assert len(set([len(ds) for ds in datasets_gt.values()] + [len(ds) for ds in datasets_random_gaze.values()])) <= 1, \
+        "GT and random gaze dataset don't have the same length."
+    dataset_length = len(list(datasets_gt.values())[0])
+
+    # define loss functions
+    loss_funcs = {
+        "mse": torch.nn.MSELoss(),
+        "l1": torch.nn.L1Loss(),
+    }
+
+    total_loss = {
+        mn: {
+            loss: {
+                "prediction": {
+                    "total": 0,
+                    "partial_x": 0,
+                    "partial_y": 0,
+                },
+                "random_gaze": {
+                    "total": 0,
+                    "partial_x": 0,
+                    "partial_y": 0,
+                },
+                "mean_mask": {
+                    "total": 0,
+                    "partial_x": 0,
+                    "partial_y": 0,
+                },
+            } if "gaze" in mn else {
+                "prediction": {
+                    "total": 0,
+                    "partial_x": 0,
+                    "partial_y": 0,
+                },
+            } for loss in loss_funcs
+        } for mn in model_names
+    }
+
+    # loop through the dataset (without batching I guess? might be better to do it?)
+    num_batches = 0
+    for start_frame in tqdm(range(0, dataset_length, config["batch_size"])):
+        # construct a batch (maybe just repeat mean map if we even use it)
+        batch = {
+            mn: {
+                "prediction": [],
+                "random_gaze": [],
+                "mean_mask": []
+            } if "gaze" in mn else {"prediction": []} for mn in model_names
+        }
+        for in_batch_idx in range(start_frame, start_frame + config["batch_size"]):
+            if in_batch_idx >= dataset_length:
+                break
+            for mn, mb in batch.items():
+                mb["prediction"].append(datasets_gt[mn][in_batch_idx])
+                if "gaze" in mn:
+                    mb["random_gaze"].append(datasets_random_gaze[mn][in_batch_idx])
+                    mb["mean_mask"].append(mean_masks[mn])
+
+        # transfer batches to GPU
+        for mn, mb in batch.items():
+            mb["prediction"] = to_device(to_batch(mb["prediction"]), device)
+            if "gaze" in mn:
+                mb["random_gaze"] = to_device(to_batch(mb["random_gaze"]), device)
+                mb["mean_mask"] = to_device(to_batch(mb["mean_mask"]), device)
+
+        ground_truth_batch = None
+        for mn, mb in batch.items():
+            if "gaze" in mn:
+                ground_truth_batch = mb["prediction"]["output_gaze"]  # I think??
+                if datasets_gt[mn].output_scaling:
+                    mb["prediction"]["output_gaze"] /= torch.tensor(
+                        [800.0, 600.0], dtype=mb["prediction"]["output_gaze"].dtype, device=device)
+
+        # if the model is not a gaze model, get the attention map and compute the center of mass etc.
+        gaze_predictions = {}
+        for mn in model_names:
+            # TODO: determine whether output is gaze or attention
+
+            # only need to save the actual prediction here
+            """
+            gaze_predictions[mn] = {
+                # "gt": batch[mn]["prediction"]["output_gaze"],  # TODO: this need to be just from the actual gaze thing!!!!!!!!!
+                # => maybe just put this in one thing outside of this loop
+                # => also needs to be normalised (potentially)
+                "prediction": None,
+                "random_gaze": None,
+                "mean_mask": None,
+            }
+            """
+            gaze_predictions[mn] = {}
+
+            # gaze_predictions[mn]["random_gaze"] = batch[mn]["random_gaze"]["output_attention"]
+            # gaze_predictions[mn]["mean_mask"] = batch[mn]["mean_mask"]["output_attention"]
+            # ok yeah nvm
+
+            # first get the prediction
+            output = models[mn](batch[mn]["prediction"])
+
+            # check if model is gaze model
+            if "gaze" in mn:
+                # get the prediction
+                gaze_predictions[mn]["prediction"] = output["output_gaze"]
+                gaze_predictions[mn]["random_gaze"] = batch[mn]["random_gaze"]["output_gaze"]
+                gaze_predictions[mn]["mean_mask"] = batch[mn]["mean_mask"]["output_gaze"]
+                if datasets_gt[mn].output_scaling:
+                    gaze_predictions[mn]["prediction"] /= torch.tensor(
+                        [800.0, 600.0], dtype=gaze_predictions[mn]["prediction"].dtype, device=device)
+                    gaze_predictions[mn]["random_gaze"] /= torch.tensor(
+                        [800.0, 600.0], dtype=gaze_predictions[mn]["random_gaze"].dtype, device=device)
+                    gaze_predictions[mn]["mean_mask"] /= torch.tensor(
+                        [800.0, 600.0], dtype=gaze_predictions[mn]["mean_mask"].dtype, device=device)
+            else:
+                # this of course assumes that only gaze or attention
+                # models are passed as input, anything else is user error
+                if isinstance(output["output_attention"], dict):
+                    attention_pred = output["output_attention"]["final"]
+                else:
+                    attention_pred = output["output_attention"]
+
+                attention_map = None
+                if model_configs[mn]["losses"]["output_attention"] == "kl":
+                    attention_map = image_softmax(attention_pred)
+                elif model_configs[mn]["losses"]["output_attention"] == "ice":
+                    attention_map = torch.sigmoid(attention_pred)
+                elif model_configs[mn]["losses"]["output_attention"] == "mse":
+                    attention_map = attention_pred
+
+                # get the center of gravity from the attention map
+                gaze_positions = []
+                attention_map = attention_map.cpu().detach().numpy()
+                for sample in attention_map:
+                    gaze_position = scipy.ndimage.center_of_mass(sample.squeeze())
+                    gaze_position = [(gaze_position[1] / attention_map.shape[-1]) * 2.0 - 1.0,
+                                     (gaze_position[0] / attention_map.shape[-2]) * 2.0 - 1.0]
+                    gaze_position = torch.tensor(gaze_position)
+                    gaze_positions.append(gaze_position)
+                gaze_positions = torch.stack(gaze_positions, dim=0).to(device)
+
+                gaze_predictions[mn]["prediction"] = gaze_positions
+
+                """
+                print("predictions by attention model:", gaze_predictions[mn]["prediction"])
+
+                # should probably check with image
+                test = attention_map.squeeze()[0]
+                test = test / test.max()
+                test = (test * 255.0).astype(np.uint8)
+                test = np.repeat(test[np.newaxis, :, :], 3, axis=0).transpose((1, 2, 0))
+                test = cv2.cvtColor(cv2.cvtColor(test, cv2.COLOR_BGR2RGB), cv2.COLOR_RGB2BGR)
+                print(test.shape, test.dtype)
+
+                center = gaze_positions[0].cpu().numpy()
+                print("center before:", center)
+                print("what x", (center[0] + 1) / 2 * test.shape[1], test.shape[1])
+                print("what y", (center[1] + 1) / 2 * test.shape[0], test.shape[0])
+                center = (int((center[0] + 1) / 2 * test.shape[1]), int((center[1] + 1) / 2 * test.shape[0]))
+                print("center:", center)
+                test = cv2.circle(test, center, 5, (0, 0, 255), -1)
+
+                other_center = ground_truth_batch[0].cpu().numpy()
+                other_center = (int((other_center[0] + 1) / 2 * test.shape[1]), int((other_center[1] + 1) / 2 * test.shape[0]))
+                test = cv2.circle(test, other_center, 5, (255, 0, 0), -1)
+
+                cv2.imshow("", test)
+                cv2.waitKey(0)
+                """
+
+        # compute the losses between all the models and the ground-truth
+        for mn, pred in gaze_predictions.items():
+            # also need to loop over the prediction and so on...
+            for mod, mod_pred in pred.items():
+                # if "prediction" or "gaze" in mn:
+                for loss, loss_f in loss_funcs.items():
+                    current_total_loss = loss_f(mod_pred, ground_truth_batch).item()
+                    current_partial_x_loss = loss_f(mod_pred[:, 0], ground_truth_batch[:, 0]).item()
+                    current_partial_y_loss = loss_f(mod_pred[:, 1], ground_truth_batch[:, 1]).item()
+                    total_loss[mn][loss][mod]["total"] += current_total_loss
+                    total_loss[mn][loss][mod]["partial_x"] += current_partial_x_loss
+                    total_loss[mn][loss][mod]["partial_y"] += current_partial_y_loss
+
+        num_batches += 1
+
+        # if num_batches > 100:
+        #     break
+
+    with (nullcontext if config["output_file"] is None else open(config["output_file"], "w")) as f:
+        print("\n-----------------------------------------------------------------------------------------------\n")
+        if config["output_file"] is not None:
+            print("\n-----------------------------------------------------"
+                  "------------------------------------------\n", file=f)
+        for mn, model_res in total_loss.items():
+            for loss, loss_res in model_res.items():
+                for mod, mod_res in loss_res.items():
+                    for pn, partial in mod_res.items():
+                        average_loss = partial / num_batches
+                        print("Average {} loss for model {} comparing {} ({}) and GT is: {}".format(
+                            loss.upper(), mn, mod, pn, average_loss))
+                        if config["output_file"] is not None:
+                            print("Average {} loss for model {} comparing {} ({}) and GT is: {}".format(
+                                loss.upper(), mn, mod, pn, average_loss), file=f)
+                    print()
+                    if config["output_file"] is not None:
+                        print(file=f)
+                print()
+                if config["output_file"] is not None:
+                    print(file=f)
+            print("-----------------------------------------------------------------------------------------------\n")
+            if config["output_file"] is not None:
+                print("-----------------------------------------------------"
+                      "------------------------------------------\n", file=f)
+
+
+def old_evaluate_gaze(config):
     # load model and config
     model, model_config, device = load(config)
 

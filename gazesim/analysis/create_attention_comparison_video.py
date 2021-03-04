@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.style as style
 import cv2
 import torch
+import scipy
 
 from tqdm import tqdm
 from gazesim.data.utils import find_contiguous_sequences, resolve_split_index_path, run_info_to_path
@@ -299,6 +300,24 @@ def main(config):
                     else:
                         combined_labels = cv2.addWeighted(attention_gt, 0.5, attention_prediction, 0.5, 0)
                         new_frame = cv2.addWeighted(frame, 0.4, combined_labels, 0.6, 0)
+
+                        """
+                        test_gt = scipy.ndimage.center_of_mass(attention_gt[:, :, 0])
+                        test_pred = scipy.ndimage.center_of_mass(attention_prediction[:, :, -1])
+
+                        test_gt = (int(test_gt[1]), int(test_gt[0]))
+                        test_pred = (int(test_pred[1]), int(test_pred[0]))
+
+                        print(test_gt)
+                        print(test_pred)
+
+                        new_frame = cv2.circle(new_frame, test_gt, 5, (255, 0, 0), -1)
+                        new_frame = cv2.circle(new_frame, test_pred, 5, (0, 0, 255), -1)
+
+                        cv2.imshow("", new_frame)
+                        cv2.waitKey(0)
+                        """
+
                     temp[100:, :, :] = new_frame
                 elif config["output_mode"] == "prediction_only":
                     frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)
