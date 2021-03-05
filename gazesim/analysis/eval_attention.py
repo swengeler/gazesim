@@ -282,14 +282,14 @@ def evaluate_attention(config):
                 # need to first convert to log, softmax, then log again? or is just log-softmax enough
                 # => question is whether softmax does anything different depending on whether the inputs
                 #    are logits for sigmoid activation or actual probability values...
-                # attention_predictions[mn]["prediction"]["log_attention"] = image_log_softmax(attention_pred)
-                attention_predictions[mn]["prediction"]["log_attention"] = torch.log(attention_pred)
+                attention_predictions[mn]["prediction"]["log_attention"] = image_log_softmax(attention_pred)
+                # attention_predictions[mn]["prediction"]["log_attention"] = torch.log(attention_pred)
             elif model_configs[mn]["losses"]["output_attention"] == "mse":
                 attention_predictions[mn]["prediction"]["attention"] = attention_pred
 
                 # TODO: shouldn't this really just be the log? but that wouldn't necessarily give a valid distro right?
-                # attention_predictions[mn]["prediction"]["log_attention"] = image_log_softmax(attention_pred)
-                attention_predictions[mn]["prediction"]["log_attention"] = torch.log(attention_pred)
+                attention_predictions[mn]["prediction"]["log_attention"] = image_log_softmax(attention_pred)
+                # attention_predictions[mn]["prediction"]["log_attention"] = torch.log(attention_pred)
 
         # compute the losses between all the models and the ground-truth
         for mn, pred in attention_predictions.items():
@@ -311,7 +311,7 @@ def evaluate_attention(config):
 
         num_batches += 1
 
-        if num_batches > 1000:
+        if num_batches > 10:
             break
 
     with (nullcontext if config["output_file"] is None else open(config["output_file"], "w")) as f:
