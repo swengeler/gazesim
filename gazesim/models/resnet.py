@@ -373,6 +373,45 @@ class ResNetLargerRegressor(LoadableModule):
         return out
 
 
+class ResNetLargerRegressorDualBranch(ResNetLargerRegressor):
+
+    def __init__(self, config=None):
+        super().__init__(config)
+
+        self.regress_gaze = "gaze" in config["model_name"]
+
+        # defining the feature-extracting CNN using VGG16 layers as a basis
+        resnet18 = models.resnet18(True)
+        modules = list(resnet18.children())[:7]
+
+        self.features_second = nn.Sequential(*modules)
+        self.downsample_second = nn.Conv2d(256, 256, 3, stride=2)
+        # shape will be [-1, 256, 19, 25] after this with module_transfer_depth 7 and input height 300
+
+        # pooling layer, using the same as ResNet for now
+        # self.pooling = nn.AdaptiveAvgPool2d((1, 1))
+        self.image_fc_0 = nn.Linear(6144 * 2, 512)
+
+    def forward(self, x):
+        image_x_0 = self.features(x["input_image_0"])
+        image_x_0 = self.relu(self.downsample(image_x_0))
+        image_x_0 = image_x_0.reshape(image_x_0.size(0), -1)
+
+        image_x_1 = self.features_second(x["input_image_1"])
+        image_x_1 = self.relu(self.downsample_second(image_x_1))
+        image_x_1 = image_x_1.reshape(image_x_1.size(0), -1)
+
+        combined_image_x = torch.cat([image_x_0, image_x_1], dim=-1)
+
+        image_x = self.relu(self.fc_dropout(self.image_fc_0(combined_image_x)))
+        image_x = self.relu(self.fc_dropout(self.image_fc_1(image_x)))
+
+        probabilities = self.regressor(image_x)
+
+        out = {"output_gaze" if self.regress_gaze else "output_control": probabilities}
+        return out
+
+
 class ResNetLargerAttentionAndControl(LoadableModule):
 
     def __init__(self, config=None):

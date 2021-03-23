@@ -8,6 +8,8 @@ import matplotlib.style as style
 import cv2
 import torch
 
+from collections import OrderedDict
+from pprint import pprint
 from torch.utils.data._utils.collate import default_collate as to_batch
 from tqdm import tqdm
 from gazesim.data.utils import find_contiguous_sequences, resolve_split_index_path, run_info_to_path, fps_reduction_index
@@ -28,6 +30,7 @@ from gazesim.training.helpers import resolve_losses, resolve_output_processing_f
 # - how do datasets have to be modified? => subindex?
 # - everything should be similarly flexible, based on config? model checkpoint?
 style.use("ggplot")
+plt.rcParams.update({"font.size": 11})
 
 
 def create_frame(fig, ax, control_gt, control_prediction, input_images):
@@ -85,6 +88,7 @@ def main(config):
     train_config["data_root"] = config["data_root"]
     train_config["gpu"] = config["gpu"]
     train_config["model_load_path"] = config["model_load_path"]
+    train_config["drone_state_names"] = ["vel", "acc", "omega"]
     train_config = parse_train_config(train_config)
     train_config["split_config"] = config["split_config"]
     train_config["input_video_names"] = [config["video_name"]]
@@ -95,10 +99,43 @@ def main(config):
     # pprint(train_config)
     # exit()
 
+    replace_old_keys = {
+        "image_conv_": "image_net_conv.",
+        "image_fc_": "image_net_fc.",
+        "state_fc_": "state_net.",
+        # "control_fc_": "control_fc.",
+    }
+
     # load the model
+    # print(train_config["drone_state_names"])
     model_info = train_config["model_info"]
+    if "codevilla" in train_config["model_name"]:
+        new_state_dict = OrderedDict()
+        # print(train_config["model_info"]["model_state_dict"].keys())
+        for key, value in model_info["model_state_dict"].items():
+            did_something = False
+            for k, v in replace_old_keys.items():
+                if k in key:
+                    new_state_dict[key.replace(k, v)] = value
+                    did_something = True
+            if not did_something and "control_fc" not in key and "control_net" not in key:
+                new_state_dict[key] = value
+
+            """
+            if "image_conv_" in key:
+                new_state_dict[key.replace("image_conv_", "image_net_conv.")] = value
+            elif "state_fc_" in key:
+                new_state_dict[key.replace("state_fc_", "state_fc.")] = value
+            else:
+                new_state_dict[key] = value
+            """
+    else:
+        new_state_dict = model_info["model_state_dict"]
+
     model = resolve_model_class(train_config["model_name"])(train_config)
-    model.load_state_dict(model_info["model_state_dict"])
+    # pprint(model.state_dict().keys())
+    # model.load_state_dict(model_info["model_state_dict"])
+    model.load_state_dict(new_state_dict)
     model = model.to(device)
     model.eval()
 
@@ -121,12 +158,16 @@ def main(config):
     frame_index.loc[subsampling_index_numeric, "frame"] = new_frame_index
 
     fig, ax = plt.subplots(figsize=(8, 6), dpi=100)
+
+    throttle_gt, roll_gt, pitch_gt, yaw_gt = [], [], [], []
+    throttle_pred, roll_pred, pitch_pred, yaw_pred = [], [], [], []
     for split in config["split"]:
         sub_index = (split_index["split"] == split) & subsampling_index
         current_frame_index = frame_index.loc[sub_index]
 
         # current_frame_index = frame_index.loc[split_index["split"] == split]
         current_dataset = resolve_dataset_class(train_config["dataset_name"])(train_config, split=split)
+        current_dataset.return_original = True
         # TODO: contiguous sequences need frame_skip thingy
         sequences = find_contiguous_sequences(current_frame_index, new_index=True)
         # TODO: actually, should probably let this do its thing and
@@ -144,6 +185,10 @@ def main(config):
             run_dirs = [run_dirs[i] for i in range(len(run_dirs)) if check[i]]
         if len(config["runs"]) > 0:
             check = [current_frame_index["run"].iloc[si] in config["runs"] for si, _ in sequences]
+            sequences = [sequences[i] for i in range(len(sequences)) if check[i]]
+            run_dirs = [run_dirs[i] for i in range(len(run_dirs)) if check[i]]
+        if len(config["laps"]) > 0:
+            check = [current_frame_index["lap_index"].iloc[si] in config["laps"] for si, _ in sequences]
             sequences = [sequences[i] for i in range(len(sequences)) if check[i]]
             run_dirs = [run_dirs[i] for i in range(len(run_dirs)) if check[i]]
 
@@ -170,7 +215,7 @@ def main(config):
                 video_writer = cv2.VideoWriter(os.path.join(video_dir, video_name), int(fourcc), fps, (1600, 600), True)
                 video_writer_dict[run_dir] = video_writer
 
-            for index in tqdm(range(start_index, end_index), disable=True):
+            for index in tqdm(range(start_index, end_index), disable=False):
                 # read the current data sample
                 sample = to_batch([current_dataset[index]])
                 sample = to_device(sample, device)
@@ -203,8 +248,59 @@ def main(config):
                 for _ in range(config["slow_down_factor"]):
                     video_writer_dict[run_dir].write(frame)
 
+                throttle_gt.append(control_gt[0])
+                roll_gt.append(control_gt[1])
+                pitch_gt.append(control_gt[2])
+                yaw_gt.append(control_gt[3])
+
+                throttle_pred.append(control_prediction[0])
+                roll_pred.append(control_prediction[1])
+                pitch_pred.append(control_prediction[2])
+                yaw_pred.append(control_prediction[3])
+
         for _, vr in video_writer_dict.items():
             vr.release()
+
+        fig_show, ax_show = plt.subplots(nrows=4, ncols=1, figsize=(10, 5), dpi=100, sharex=True)
+
+        line = ax_show[0].plot(np.arange(len(throttle_gt)) / 60.0, throttle_pred, label="Throttle (pred)")
+        ax_show[0].plot(np.arange(len(throttle_gt)) / 60.0, throttle_gt, label="Throttle (GT)",
+                        color=line[0].get_color(), linestyle="--")
+        ax_show[0].set_ylim(bottom=-0.1, top=1.1)
+        ax_show[0].legend(loc="center left", bbox_to_anchor=(1.02, 0.5))
+        # ax_show[0].legend()
+
+        ax_show[1]._get_lines.get_next_color()
+        line = ax_show[1].plot(np.arange(len(roll_gt)) / 60.0, roll_pred, label="Roll (pred)")
+        ax_show[1].plot(np.arange(len(roll_gt)) / 60.0, roll_gt, label="Roll (GT)",
+                        color=line[0].get_color(), linestyle="--")
+        ax_show[1].set_ylim(bottom=-1.0, top=1.0)
+        ax_show[1].legend(loc="center left", bbox_to_anchor=(1.02, 0.5))
+        # ax_show[1].legend()
+
+        ax_show[2]._get_lines.get_next_color()
+        ax_show[2]._get_lines.get_next_color()
+        line = ax_show[2].plot(np.arange(len(pitch_gt)) / 60.0, pitch_pred, label="Pitch (pred)")
+        ax_show[2].plot(np.arange(len(pitch_gt)) / 60.0, pitch_gt, label="Pitch (GT)",
+                        color=line[0].get_color(), linestyle="--")
+        ax_show[2].set_ylim(bottom=-1.0, top=1.0)
+        ax_show[2].legend(loc="center left", bbox_to_anchor=(1.02, 0.5))
+        # ax_show[2].legend()
+
+        ax_show[3]._get_lines.get_next_color()
+        ax_show[3]._get_lines.get_next_color()
+        ax_show[3]._get_lines.get_next_color()
+        line = ax_show[3].plot(np.arange(len(yaw_gt)) / 60.0, yaw_pred, label="Yaw (pred)")
+        ax_show[3].plot(np.arange(len(yaw_gt)) / 60.0, yaw_gt, label="Yaw (GT)",
+                        color=line[0].get_color(), linestyle="--")
+        ax_show[3].set_ylim(bottom=-1.0, top=1.0)
+        ax_show[3].legend(loc="center left", bbox_to_anchor=(1.02, 0.5))
+        # ax_show[3].legend()
+
+        ax_show[3].set_xlabel("Time [s]")
+
+        fig_show.tight_layout()
+        plt.show()
 
 
 def parse_config(args):
@@ -234,6 +330,8 @@ if __name__ == "__main__":
                         help="Subjects to use.")
     parser.add_argument("-run", "--runs", type=int, nargs="*", default=[],
                         help="Runs to use.")
+    parser.add_argument("-lap", "--laps", type=int, nargs="*", default=[],
+                        help="Laps to use.")
     parser.add_argument("-f", "--filter", type=str, default=None, choices=["turn_left", "turn_right"],
                         help="'Property' by which to filter frames (only left/right turn for now).")
     parser.add_argument("-tn", "--track_name", type=str, default="flat",

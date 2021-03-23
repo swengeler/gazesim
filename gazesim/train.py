@@ -401,10 +401,10 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--model_name", type=str,
                         choices=["codevilla", "c3d", "c3d_state", "codevilla300", "codevilla_skip",
                                  "codevilla_multi_head", "codevilla_dual_branch", "codevilla_no_state", "resnet_state",
-                                 "resnet", "resnet_larger", "resnet_state_larger", "resnet_larger_att_ctrl",
-                                 "state_only", "dreyeve_branch", "resnet_att", "resnet_larger_gru", "ue4sim", "dda",
-                                 "high_res_att", "simple_att", "resnet_gaze", "resnet_larger_gaze",
-                                 "direct_supervision"],
+                                 "resnet", "resnet_larger", "resnet_larger_dual_branch", "resnet_state_larger",
+                                 "resnet_larger_att_ctrl", "state_only", "dreyeve_branch", "resnet_att",
+                                 "resnet_larger_gru", "ue4sim", "dda", "high_res_att", "simple_att", "resnet_gaze",
+                                 "resnet_larger_gaze", "direct_supervision"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,  # TODO: maybe adjust for dreyeve net
                         help="Path to load a model checkpoint from (including information about the "

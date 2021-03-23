@@ -45,7 +45,7 @@ def convert_attention_to_image(attention, out_shape=None):
 
     # resize the image if necessary
     if out_shape is not None and (attention.shape[2] != out_shape[0] or attention.shape[3] != out_shape[1]):
-        attention = torch.nn.functional.interpolate(attention, out_shape)
+        attention = torch.nn.functional.interpolate(attention, out_shape, mode="bicubic", align_corners=True)
 
     # TODO: maybe also add color channels
 

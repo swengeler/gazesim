@@ -7,7 +7,7 @@ from gazesim.data.datasets import StackedImageToAttentionDataset, StackedImageTo
 from gazesim.models.c3d import C3DRegressor, C3DStateRegressor
 from gazesim.models.codevilla import Codevilla, Codevilla300, CodevillaSkip, CodevillaMultiHead, CodevillaDualBranch, CodevillaMultiHeadNoState
 from gazesim.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetStateLargerRegressor, StateOnlyRegressor, ResNetLargerRegressor
-from gazesim.models.resnet import ResNetLargerAttentionAndControl, ResNetAttention, SimpleAttention
+from gazesim.models.resnet import ResNetLargerAttentionAndControl, ResNetAttention, SimpleAttention, ResNetLargerRegressorDualBranch
 from gazesim.models.dreyeve import SaliencyBranch
 from gazesim.models.rnn import ResNetLargerGRURegressor
 from gazesim.models.ue4sim import UE4SimRegressor
@@ -31,6 +31,7 @@ def resolve_model_class(model_name):
         "resnet_state": ResNetStateRegressor,
         "resnet": ResNetRegressor,
         "resnet_larger": ResNetLargerRegressor,
+        "resnet_larger_dual_branch": ResNetLargerRegressorDualBranch,
         "resnet_state_larger": ResNetStateLargerRegressor,
         "resnet_larger_att_ctrl": ResNetLargerAttentionAndControl,
         "state_only": StateOnlyRegressor,
@@ -128,6 +129,7 @@ def resolve_dataset_name(model_name):
         "resnet_state": "ImageAndStateToControlDataset",
         "resnet": "ImageToControlDataset",
         "resnet_larger": "ImageToControlDataset",
+        "resnet_larger_dual_branch": "ImageToControlDataset",
         "resnet_state_larger": "ImageAndStateToControlDataset",
         "resnet_larger_att_ctrl": "ImageToAttentionAndControlDataset",
         "state_only": "StateToControlDataset",
@@ -192,6 +194,7 @@ def resolve_resize_parameters(model_name):
         "resnet_state": 300,
         "resnet": 300,
         "resnet_larger": 150,
+        "resnet_larger_dual_branch": 150,
         "resnet_state_larger": 150,
         "resnet_larger_att_ctrl": 300,
         "state_only": -1,

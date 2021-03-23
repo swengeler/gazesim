@@ -241,7 +241,7 @@ def main(config):
                         attention_gt = np.repeat(attention_gt[np.newaxis, :, :], 3, axis=0).transpose((1, 2, 0))
                     attention_prediction = np.repeat(attention_prediction[np.newaxis, :, :], 3, axis=0).transpose((1, 2, 0))
 
-                    # normalise using the maximum of the maxima of either label and convert to [0, 255] scale
+                    # normalise using the maximum of the maximacap of either label and convert to [0, 255] scale
                     norm_max = attention_prediction.max() if prediction_only else max([attention_gt.max(), attention_prediction.max()])
                     if norm_max != 0:
                         if not prediction_only:
@@ -320,8 +320,9 @@ def main(config):
 
                     temp[100:, :, :] = new_frame
                 elif config["output_mode"] == "prediction_only":
-                    frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)
-                    new_frame = cv2.addWeighted(frame, 0.4, attention_prediction, 0.6, 0)
+                    # frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)
+                    # new_frame = cv2.addWeighted(frame, 0.4, attention_prediction, 0.6, 0)
+                    new_frame = cv2.add(frame, attention_prediction)
                     temp = new_frame
                 new_frame = temp
 
