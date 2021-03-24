@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 
 from tqdm import tqdm
 from gazesim.training.config import parse_config
-from gazesim.training.utils import get_batch_size, to_device
+from gazesim.training.utils import get_batch_size, to_device, load_model
 from gazesim.training.helpers import resolve_model_class, resolve_dataset_class, resolve_optimiser_class
 from gazesim.training.helpers import resolve_losses, resolve_output_processing_func, resolve_logger_class
 from gazesim.data.utils import pair
@@ -301,6 +301,76 @@ def cross_validate(config, device):
                 model.train()
 
 
+def val_or_test(config, device):
+    # load the model
+    model, model_config = load_model(config["model_load_path"], config["gpu"], return_config=True)
+    model.to(device)
+    model.eval()
+
+    # modify model config for dataset loading
+    model_config["data_root"] = config["data_root"]
+    model_config["split_config"] = config["split_config"]
+    model_config["eval_model_load_path"] = config["model_load_path"]
+
+    # define the dataset
+    validation_set = resolve_dataset_class(model_config["dataset_name"])(model_config, split=config["mode"])
+    validation_generator = DataLoader(validation_set, batch_size=config["batch_size"],
+                                      shuffle=False, num_workers=config["num_workers"])
+
+    # define the loss function(s)
+    loss_functions = resolve_losses(model_config["losses"])
+
+    # define the logger and disable writing to hardware
+    logger = resolve_logger_class(model_config["dataset_name"], config["mode"])(model_config, disable_write_to_disk=True)
+    logger.update_info(model=model, dataset=validation_set)
+
+    print("Starting validation!")
+    with torch.no_grad():
+        model.eval()
+        for val_batch_index, val_batch in tqdm(enumerate(validation_generator), total=len(validation_generator)):
+            # transfer to GPU
+            val_batch = to_device(val_batch, device)
+
+            # forward pass and loss computation
+            val_predictions = model(val_batch)
+            total_val_loss = None
+            partial_val_losses = {}
+            for output in val_predictions:
+                if isinstance(val_predictions[output], dict):
+                    # this is very ugly, but for now it should work for the multi-scale attention model
+                    partial_val_losses[output] = {}
+                    for partial_output in val_predictions[output]:
+                        current_prediction = resolve_output_processing_func(
+                            output, model_config["losses"][output])(val_predictions[output][partial_output])
+                        current_loss = loss_functions[output](current_prediction, val_batch[output])
+                        if total_val_loss is None:
+                            total_val_loss = current_loss
+                        else:
+                            total_val_loss += current_loss
+                        partial_val_losses[output] = current_loss
+                else:
+                    current_prediction = resolve_output_processing_func(
+                        output, model_config["losses"][output])(val_predictions[output])
+                    current_loss = loss_functions[output](current_prediction, val_batch[output])
+                    if total_val_loss is None:
+                        total_val_loss = current_loss
+                    else:
+                        total_val_loss += current_loss
+                    partial_val_losses[output] = current_loss
+
+            # tracking the loss in the logger
+            logger.validation_step_end(0, total_val_loss, partial_val_losses, val_batch, val_predictions)
+
+        # print out results after complete pass over validation set
+        test = logger.validation_epoch_end(0, 0, model, None)
+
+        # TODO: actually need to make this return the losses and stuff....
+
+        print("Finished validation")
+
+        print("L1 loss:", test)
+
+
 def main(config):
     # set the seed for PyTorch
     torch.manual_seed(config["torch_seed"])
@@ -313,7 +383,7 @@ def main(config):
 
     # check what to do: at the moment only choice between training and cross validation
     # would be easier to just specify that training/CV should be done rather than checking automatically...
-    {"train": train, "cv": cross_validate}[config["mode"]](config, device)
+    {"train": train, "cv": cross_validate, "val": val_or_test, "test": val_or_test}[config["mode"]](config, device)
 
 
 if __name__ == "__main__":
@@ -401,10 +471,10 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--model_name", type=str,
                         choices=["codevilla", "c3d", "c3d_state", "codevilla300", "codevilla_skip",
                                  "codevilla_multi_head", "codevilla_dual_branch", "codevilla_no_state", "resnet_state",
-                                 "resnet", "resnet_larger", "resnet_larger_dual_branch", "resnet_state_larger",
-                                 "resnet_larger_att_ctrl", "state_only", "dreyeve_branch", "resnet_att",
-                                 "resnet_larger_gru", "ue4sim", "dda", "high_res_att", "simple_att", "resnet_gaze",
-                                 "resnet_larger_gaze", "direct_supervision"],
+                                 "resnet", "resnet_larger", "resnet_larger_dual_branch", "resnet_larger_multi_head",
+                                 "resnet_state_larger", "resnet_larger_att_ctrl", "state_only", "dreyeve_branch",
+                                 "resnet_att", "resnet_larger_gru", "ue4sim", "dda", "high_res_att", "simple_att",
+                                 "resnet_gaze", "resnet_larger_gaze", "direct_supervision"],
                         help="The name of the model to use.")
     parser.add_argument("-mlp", "--model_load_path", type=str,  # TODO: maybe adjust for dreyeve net
                         help="Path to load a model checkpoint from (including information about the "
@@ -422,7 +492,7 @@ if __name__ == "__main__":
                              "High-Res-Attention network (using hard tanh).")
 
     # arguments related to training
-    parser.add_argument("-md", "--mode", type=str, choices=["train", "cv"],
+    parser.add_argument("-md", "--mode", type=str, choices=["train", "cv", "val", "test"],
                         help="Mode to train in, currently only 'normal' training and cross validation.")
     parser.add_argument("-g", "--gpu", type=int,
                         help="GPU to use for training if any are available.")

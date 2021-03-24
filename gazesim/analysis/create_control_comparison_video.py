@@ -108,8 +108,9 @@ def main(config):
 
     # load the model
     # print(train_config["drone_state_names"])
+    old_model = False
     model_info = train_config["model_info"]
-    if "codevilla" in train_config["model_name"]:
+    if old_model and "codevilla" in train_config["model_name"]:
         new_state_dict = OrderedDict()
         # print(train_config["model_info"]["model_state_dict"].keys())
         for key, value in model_info["model_state_dict"].items():

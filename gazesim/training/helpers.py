@@ -7,7 +7,8 @@ from gazesim.data.datasets import StackedImageToAttentionDataset, StackedImageTo
 from gazesim.models.c3d import C3DRegressor, C3DStateRegressor
 from gazesim.models.codevilla import Codevilla, Codevilla300, CodevillaSkip, CodevillaMultiHead, CodevillaDualBranch, CodevillaMultiHeadNoState
 from gazesim.models.resnet import ResNetStateRegressor, ResNetRegressor, ResNetStateLargerRegressor, StateOnlyRegressor, ResNetLargerRegressor
-from gazesim.models.resnet import ResNetLargerAttentionAndControl, ResNetAttention, SimpleAttention, ResNetLargerRegressorDualBranch
+from gazesim.models.resnet import ResNetLargerAttentionAndControl, ResNetAttention, SimpleAttention
+from gazesim.models.resnet import ResNetLargerRegressorDualBranch, ResNetLargerRegressorMultiHead
 from gazesim.models.dreyeve import SaliencyBranch
 from gazesim.models.rnn import ResNetLargerGRURegressor
 from gazesim.models.ue4sim import UE4SimRegressor
@@ -32,6 +33,7 @@ def resolve_model_class(model_name):
         "resnet": ResNetRegressor,
         "resnet_larger": ResNetLargerRegressor,
         "resnet_larger_dual_branch": ResNetLargerRegressorDualBranch,
+        "resnet_larger_multi_head": ResNetLargerRegressorMultiHead,
         "resnet_state_larger": ResNetStateLargerRegressor,
         "resnet_larger_att_ctrl": ResNetLargerAttentionAndControl,
         "state_only": StateOnlyRegressor,
@@ -130,6 +132,7 @@ def resolve_dataset_name(model_name):
         "resnet": "ImageToControlDataset",
         "resnet_larger": "ImageToControlDataset",
         "resnet_larger_dual_branch": "ImageToControlDataset",
+        "resnet_larger_multi_head": "ImageToControlDataset",
         "resnet_state_larger": "ImageAndStateToControlDataset",
         "resnet_larger_att_ctrl": "ImageToAttentionAndControlDataset",
         "state_only": "StateToControlDataset",
@@ -164,19 +167,19 @@ def resolve_dataset_class(dataset_name):
 
 def resolve_logger_class(dataset_name, mode):
     if "AttentionAndControl" in dataset_name:
-        if mode == "train":
+        if mode != "cv":
             return AttentionAndControlLogger
     elif "Control" in dataset_name or "DDA" in dataset_name:
-        if mode == "train":
-            return ControlLogger
-        elif mode == "cv":
+        if mode == "cv":
             return CVControlLogger
+        else:
+            return ControlLogger
     elif "Gaze" in dataset_name:
         return GazeLogger
     else:
         # TODO: consider also logging cropped attention if available
         #  => probably not worth making a new logger for but could check if the data is there
-        if mode == "train":
+        if mode != "cv":
             return AttentionLogger
 
 
@@ -195,6 +198,7 @@ def resolve_resize_parameters(model_name):
         "resnet": 300,
         "resnet_larger": 150,
         "resnet_larger_dual_branch": 150,
+        "resnet_larger_multi_head": 150,
         "resnet_state_larger": 150,
         "resnet_larger_att_ctrl": 300,
         "state_only": -1,

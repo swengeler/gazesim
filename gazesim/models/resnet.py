@@ -412,6 +412,68 @@ class ResNetLargerRegressorDualBranch(ResNetLargerRegressor):
         return out
 
 
+class ResNetLargerRegressorMultiHead(ResNetLargerRegressor):
+
+    def __init__(self, config=None):
+        super().__init__(config)
+
+        del self.regressor
+
+        # defining the upscaling layers to get out the original image size again
+        activation = DummyLayer()
+        if not self.regress_gaze and not config["no_control_activation"]:
+            activation = ControlActivationLayer()
+        elif self.regress_gaze and config["gaze_activation"]:
+            activation = nn.Tanh()
+
+        self.branches = nn.ModuleList()
+        for b in range(5):
+            branch = nn.Sequential(
+                nn.Linear(256, 256),
+                nn.Dropout(0.5),
+                nn.ReLU(),
+                nn.Linear(256, 2 if self.regress_gaze else 4),
+                activation
+            )
+            self.branches.append(branch)
+
+    def forward(self, x):
+        image_x = self.features(x["input_image_0"])
+        image_x = self.relu(self.downsample(image_x))
+        image_x = image_x.reshape(image_x.size(0), -1)
+        image_x = self.relu(self.fc_dropout(self.image_fc_0(image_x)))
+        image_x = self.relu(self.fc_dropout(self.image_fc_1(image_x)))
+
+        # use different branches depending on label of each sample in batch
+        samples = []
+        index = torch.arange(end=image_x.size(0)).to(image_x.device)
+        for b_idx, branch in enumerate(self.branches):
+            # get subset of batch where label matches branch index
+            subset = (x["label_high_level"] == b_idx)
+
+            # vector of all indices in the batch, reshaped to match the dimensions of the input vector
+            sub_index = index[subset]
+
+            # select the correct samples
+            branch_batch = torch.index_select(image_x, 0, sub_index)
+
+            # pass them through the branch head
+            branch_batch = branch(branch_batch)
+
+            # put them in the samples list
+            for s_idx, sample in zip(sub_index, branch_batch):
+                samples.append((int(s_idx), sample.unsqueeze(0)))
+
+        # combine samples again
+        samples = [sample[1] for sample in sorted(samples, key=lambda s: s[0])]
+        image_x = torch.cat(samples, 0)
+
+        probabilities = self.regressor(image_x)
+
+        out = {"output_gaze" if self.regress_gaze else "output_control": probabilities}
+        return out
+
+
 class ResNetLargerAttentionAndControl(LoadableModule):
 
     def __init__(self, config=None):
