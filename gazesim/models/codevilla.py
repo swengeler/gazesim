@@ -367,6 +367,16 @@ if __name__ == "__main__":
         "drone_state_names": ["?"] * 9
     }
 
-    net = CodevillaDualBranch().to(device)
-    result = net(X)
-    print(result)
+    test_config = {
+        "drone_state_names": [""] * 9,
+        "no_control_activation": True,
+    }
+
+    net = CodevillaDualBranch(test_config).to(device)
+    # result = net(X)
+    # print(result)
+
+    print(net)
+
+    num_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    print("Number of parameters for Codevilla attention network :", num_params)

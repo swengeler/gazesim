@@ -63,12 +63,11 @@ def extract_lap_trajectory(args):
 
 
 def extract_lap_video(args):
-    # TODO:
     run_dir = os.path.join(args.data_root, run_info_to_path(args.subject, args.run, args.track_name))
-    inpath_video = os.path.join(run_dir, "screen.mp4")
+    inpath_video = os.path.join(run_dir, f"{args.video_name}.mp4")
     inpath_ts = os.path.join(run_dir, "screen_timestamps.csv")
     inpath_laps = os.path.join(run_dir, "laptimes.csv")
-    file_name = "video_s{:03d}_r{:02d}_{}_li{:02d}.mp4".format(args.subject, args.run, args.track_name, args.lap_index)
+    file_name = "video_{}_s{:03d}_r{:02d}_{}_li{:02d}.mp4".format(args.video_name, args.subject, args.run, args.track_name, args.lap_index)
 
     # load screen_timestamps.csv and laptimes.csv
     df_ts = pd.read_csv(inpath_ts)
@@ -145,6 +144,7 @@ if __name__ == "__main__":
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
     parser.add_argument("-md", "--mode", type=str, default="trajectory", choices=["trajectory", "video"])
     parser.add_argument("-tjn", "--trajectory_name", type=str, default="trajectory")
+    parser.add_argument("-vn", "--video_name", type=str, default="screen")
     parser.add_argument("-s", "--subject", type=int)
     parser.add_argument("-r", "--run", type=int)
     parser.add_argument("-li", "--lap_index", type=int)

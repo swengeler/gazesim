@@ -466,9 +466,7 @@ class ResNetLargerRegressorMultiHead(ResNetLargerRegressor):
 
         # combine samples again
         samples = [sample[1] for sample in sorted(samples, key=lambda s: s[0])]
-        image_x = torch.cat(samples, 0)
-
-        probabilities = self.regressor(image_x)
+        probabilities = torch.cat(samples, 0)
 
         out = {"output_gaze" if self.regress_gaze else "output_control": probabilities}
         return out
@@ -636,7 +634,6 @@ class ResNetAttention(LoadableModule):
         return out
 
 
-# TODO: maybe a super simple Conv2D only model to test whether it even does worse?
 class SimpleAttention(LoadableModule):
 
     def __init__(self, config=None):

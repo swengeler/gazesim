@@ -5,7 +5,6 @@ import pandas as pd
 import matplotlib.style as style
 import cv2
 import torch
-import scipy
 
 from tqdm import tqdm
 from gazesim.data.utils import find_contiguous_sequences, resolve_split_index_path, run_info_to_path
@@ -16,17 +15,6 @@ from gazesim.training.utils import to_device, to_batch
 from gazesim.training.helpers import resolve_output_processing_func
 from gazesim.models.utils import image_softmax
 
-# TODO options for which "frames" to include
-# - include only those with GT given
-# - include only those on valid lap, expected trajectory, left/right turn etc.
-# - split non-adjacent sections into separately videos/clips (maybe a bit overkill?)
-
-# TODO: need new way to extract clips from index files, maybe:
-# - supply index file and only allow validation and test data (set which to take or both)
-# - if specified also filter by subject, run, lap
-# - extract clips using the existing function for that
-# - how do datasets have to be modified? => subindex?
-# - everything should be similarly flexible, based on config? model checkpoint?
 style.use("ggplot")
 
 
@@ -68,7 +56,6 @@ def main(config):
     # load frame_index and split_index
     frame_index = pd.read_csv(os.path.join(config["data_root"], "index", "frame_index.csv"))
     split_index = pd.read_csv(config["split_config"] + ".csv")
-    # TODO: maybe check that the split index actually contains data that can be used properly
 
     # use GPU if possible
     use_cuda = torch.cuda.is_available()
@@ -114,23 +101,13 @@ def main(config):
             "y_pred": [],
         }
 
-    # TODO: this is ok for now, but should probably changed e.g.
-    #  for image (stacks) + state datasets to be automatic/flexible
     prediction_only = config["output_mode"] == "prediction_only"
     dataset_class = ImageDataset if prediction_only else resolve_dataset_class(train_config["dataset_name"])
-
-    # TODO: apply filter (can include split, svektorubject, run I guess, not sure that lap would make sense)
-    #  => actually, if we wanted to just extract a single video for one lap, it would probably make sense...
-    # but if the default is that everything is used... then there is a bit of an issue for labeling complete sequences
-    # could either ignore that if it is the case, complain/skip if there is overlap in a single sequence or just
-    # use a more "rigorous" structure, where we always filter by split => probably the latter
 
     for split in config["split"]:
         current_frame_index = frame_index.loc[split_index["split"] == split]
         current_dataset = dataset_class(train_config, split=split)
         sequences = find_contiguous_sequences(current_frame_index, new_index=True)
-        # TODO: do lower FPS stuff somehow => can probably just do [::frame_skip] and then make sure that the
-        #  difference between frames is == frame_skip
 
         video_writer_dict = {}
         run_dirs = [run_info_to_path(current_frame_index["subject"].iloc[si],
@@ -149,8 +126,6 @@ def main(config):
             check = [current_frame_index["lap_index"].iloc[si] in config["laps"] for si, _ in sequences]
             sequences = [sequences[i] for i in range(len(sequences)) if check[i]]
             run_dirs = [run_dirs[i] for i in range(len(run_dirs)) if check[i]]
-
-        print(sequences)
 
         run_dir = run_dirs[0]
         for (start_index, end_index), current_run_dir in tqdm(zip(sequences, run_dirs), disable=False, total=len(sequences)):
@@ -198,17 +173,9 @@ def main(config):
                         "mse": lambda x: x,
                     }[train_config["losses"][output_name]]
                     if isinstance(prediction[output_name], dict):
-                        # prediction[output_name] = image_softmax(resolve_output_processing_func(
-                        #     output_name, train_config["losses"][output_name])(prediction[output_name]["final"]))
-                        # prediction[output_name] = final_func(resolve_output_processing_func(
-                        #     output_name, train_config["losses"][output_name])(prediction[output_name]["final"]))
                         prediction[output_name] = output_processing_func(prediction[output_name]["final"])
                     else:
-                        # prediction[output_name] = final_func(resolve_output_processing_func(
-                        #     output_name, train_config["losses"][output_name])(prediction[output_name]))
                         prediction[output_name] = output_processing_func(prediction[output_name])
-                        # prediction[output_name] = torch.sigmoid(resolve_output_processing_func(
-                        #     output_name, train_config["losses"][output_name])(prediction[output_name]))
 
                 # get the values as numpy arrays
                 attention_gt = None if prediction_only else sample[output_name].cpu().detach().numpy().squeeze()
@@ -232,7 +199,6 @@ def main(config):
 
                 # get the original frame as a numpy array (also convert color for OpenCV)
                 frame = sample["original"]["input_image_0"].cpu().detach().numpy().squeeze()
-                # frame = (frame * 255.0).astype(np.uint8)
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
                 # stack greyscale labels to become RGB
@@ -253,7 +219,8 @@ def main(config):
 
                     # set all but one colour channel for GT and predicted labels to 0
                     if not prediction_only:
-                        attention_gt[:, :, 1:] = 0
+                        attention_gt[:, :, 0] = 0
+                        attention_gt[:, :, -1] = 0
                     attention_prediction[:, :, :-1] = 0
 
                     # scale the attention maps to the right size
@@ -277,7 +244,7 @@ def main(config):
                     temp[100:, :, :] = new_frame
                 elif config["output_mode"] == "overlay_simple":
                     # right now only overlay_simple "supported"
-                    frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)
+                    # frame = np.repeat(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)[:, :, np.newaxis], 3, axis=2)
                     if gaze_model:
                         if hasattr(current_dataset, "output_scaling") and current_dataset.output_scaling:
                             attention_gt /= 2.0
@@ -298,8 +265,8 @@ def main(config):
                         frame = cv2.circle(frame, attention_gt, 10, (255, 0, 0), -1)
                         new_frame = cv2.circle(frame, attention_prediction, 10, (0, 0, 255), -1)
                     else:
-                        combined_labels = cv2.addWeighted(attention_gt, 0.5, attention_prediction, 0.5, 0)
-                        new_frame = cv2.addWeighted(frame, 0.4, combined_labels, 0.6, 0)
+                        combined_labels = cv2.addWeighted(attention_gt, 0.5, attention_prediction, 1.0, 0)
+                        new_frame = cv2.addWeighted(frame, 0.5, combined_labels, 1.0, 0)
 
                         """
                         test_gt = scipy.ndimage.center_of_mass(attention_gt[:, :, 0])
@@ -376,7 +343,7 @@ if __name__ == "__main__":
                         help="'Property' by which to filter frames (only left/right turn for now).")
     parser.add_argument("-tn", "--track_name", type=str, default="flat",
                         help="The name of the track.")
-    parser.add_argument("-om", "--output_mode", type=str, default="overlay_maps",
+    parser.add_argument("-om", "--output_mode", type=str, default="overlay_simple",
                         choices=["overlay_maps", "overlay_all", "overlay_none", "overlay_simple", "prediction_only"],
                         help="The path to the model checkpoint to use for computing the predictions.")
     parser.add_argument("-sf", "--slow_down_factor", type=int, default=1,
