@@ -53,7 +53,7 @@ class MovingWindowFrameMeanGT(DataGenerator):
         # get the path to the index directory
         index_dir = os.path.join(run_dir, os.pardir, os.pardir, "index")
         frame_index_path = os.path.join(index_dir, "frame_index.csv")
-        gaze_gt_path = os.path.join(index_dir, "test_gaze_gt.csv")
+        gaze_gt_path = os.path.join(index_dir, "gaze_gt.csv")
 
         df_frame_index = pd.read_csv(frame_index_path)
 
@@ -84,18 +84,27 @@ class MovingWindowFrameMeanGT(DataGenerator):
         df_gaze_gt, gaze_gt_path, match_index = self.get_gt_info(run_dir, subject, run)
 
         # initiate video capture and writer
-        video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
-        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        video_file = os.path.join(run_dir, "screen.mp4")
+        if os.path.isfile(video_file):
+            video_capture = cv2.VideoCapture(video_file)
+            video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
+            w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
 
-        if not (w == 800 and h == 600):
-            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
-            return
+            if not (w == 800 and h == 600):
+                print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+                return
 
-        if not int(num_frames) == match_index.sum():
-            print("WARNING: Number of frames in video and registered in main index is different for directory '{}'.".format(run_dir))
-            return
+            if not int(num_frames) == match_index.sum():
+                print("WARNING: Number of frames in video and registered in main index is different for directory '{}'.".format(run_dir))
+                return
+        else:
+            print("WARNING: No 'screen.mp4' video found for directory '{}'. Using default values for video parameters.".format(run_dir))
+            w = 800
+            h = 600
+            fps = 60.0
+            fourcc = cv2.VideoWriter_fourcc(*"MP4V")
+            num_frames = match_index.sum()
 
         # load data frames with the timestamps and positions for gaze and the frames/timestamps for the video
         df_gaze = pd.read_csv(os.path.join(run_dir, "gaze_on_surface.csv"))
@@ -217,14 +226,18 @@ class FrameMeanGazeGT(DataGenerator):
             run_dir, subject, run)
 
         # initiate video capture and writer
-        video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
-        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        video_file = os.path.join(run_dir, "screen.mp4")
+        if os.path.isfile(video_file):
+            video_capture = cv2.VideoCapture(video_file)
+            video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
+            w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
 
-        if not (w == 800 and h == 600):
-            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
-            return
+            if not (w == 800 and h == 600):
+                print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+                return
+        else:
+            print("WARNING: No 'screen.mp4' video found for directory '{}'. Using default values for video parameters.".format(run_dir))
 
         # load data frames with the timestamps and positions for gaze and the frames/timestamps for the video
         df_gaze = pd.read_csv(os.path.join(run_dir, "gaze_on_surface.csv"))
@@ -404,19 +417,28 @@ class RandomGazeGT(DataGenerator):
         df_gaze_gt, gaze_gt_path, match_index = self.get_gt_info(run_dir, subject, run)
 
         # initiate video capture and writer
-        video_capture = cv2.VideoCapture(os.path.join(run_dir, "screen.mp4"))
-        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        video_file = os.path.join(run_dir, "screen.mp4")
+        if os.path.isfile(video_file):
+            video_capture = cv2.VideoCapture(video_file)
+            video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
+            w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
 
-        if not (w == 800 and h == 600):
-            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
-            return
+            if not (w == 800 and h == 600):
+                print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+                return
 
-        if not int(num_frames) == match_index.sum():
-            print("WARNING: Number of frames in video and registered in main index "
-                  "is different for directory '{}'.".format(run_dir))
-            return
+            if not int(num_frames) == match_index.sum():
+                print("WARNING: Number of frames in video and registered in main index "
+                      "is different for directory '{}'.".format(run_dir))
+                return
+        else:
+            print("WARNING: No 'screen.mp4' video found for directory '{}'. Using default values for video parameters.".format(run_dir))
+            w = 800
+            h = 600
+            fps = 60.0
+            fourcc = cv2.VideoWriter_fourcc(*"MP4V")
+            num_frames = match_index.sum()
 
         # moved this here to be able to exit as early as possible if video already exists
         # this "ground-truth" type is available for all frames
@@ -509,14 +531,23 @@ class ShuffledRandomGazeGT(DataGenerator):
         start = time()
 
         # initiate video capture
-        video_capture = cv2.VideoCapture(os.path.join(run_dir, f"{self.video_name}.mp4"))
-        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        video_file = os.path.join(run_dir, f"{self.video_name}.mp4")
+        if os.path.isfile(video_file):
+            video_capture = cv2.VideoCapture(video_file)
+            video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
+            w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
 
-        if not (w == 800 and h == 600):
-            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
-            return
+            if not (w == 800 and h == 600):
+                print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+                return
+        else:
+            print(f"WARNING: No '{self.video_name}.mp4' video found for directory '{run_dir}'. "
+                  f"Using default values for video parameters.")
+            w = 800
+            h = 600
+            fps = 60.0
+            fourcc = cv2.VideoWriter_fourcc(*"MP4V")
 
         video_writer = cv2.VideoWriter(
             os.path.join(run_dir, f"{self.class_name}.mp4"),
@@ -618,22 +649,31 @@ class PredictedGazeGT(DataGenerator):
         run_split = "{}_{}_{}".format(run_info["track_name"], run_info["subject"], run_info["run"])
 
         # initiate video capture and writer
-        video_capture = cv2.VideoCapture(os.path.join(run_dir, f"{self.video_name}.mp4"))
-        video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+        video_file = os.path.join(run_dir, f"{self.video_name}.mp4")
+        num_frames = None
+        if os.path.isfile(video_file):
+            video_capture = cv2.VideoCapture(video_file)
+            video_capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
-        w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
-        num_frames = int(num_frames)
+            w, h, fps, fourcc, num_frames = (video_capture.get(i) for i in range(3, 8))
+            num_frames = int(num_frames)
 
-        if not (w == 800 and h == 600):
-            print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
-            return
+            if not (w == 800 and h == 600):
+                print("WARNING: Screen video does not have the correct dimensions for directory '{}'.".format(run_dir))
+                return
+        else:
+            print(f"WARNING: No '{self.video_name}.mp4' video found for directory '{run_dir}'. "
+                  f"Using default values for video parameters.")
+            w = 800
+            h = 600
+            fps = 60.0
+            fourcc = cv2.VideoWriter_fourcc(*"MP4V")
 
         # create dataset
         data_set = resolve_dataset_class(self.config["dataset_name"])(self.config, run_split)
 
         # check that dataset length and number of frames in video match
-        # TODO: might want to change this for stacked stuff (if we ever use it)
-        if num_frames != len(data_set):
+        if os.path.isfile(video_file) and num_frames != len(data_set):
             print("WARNING: Dataset size ({}) and number of frames in video ({}) not the same for directory '{}'"
                   .format(len(data_set), num_frames, run_dir))
             return

@@ -362,13 +362,11 @@ def val_or_test(config, device):
             logger.validation_step_end(0, total_val_loss, partial_val_losses, val_batch, val_predictions)
 
         # print out results after complete pass over validation set
-        test = logger.validation_epoch_end(0, 0, model, None)
+        test = logger.total_loss_val / len(validation_generator)
+        logger.validation_epoch_end(0, 0, model, None)
 
-        # TODO: actually need to make this return the losses and stuff....
-
-        print("Finished validation")
-
-        print("L1 loss:", test)
+        print("Finished validation!")
+        print("Validation loss :", test.item())
 
 
 def main(config):

@@ -311,10 +311,7 @@ def evaluate_attention(config):
 
         num_batches += 1
 
-        if num_batches > 10:
-            break
-
-    with (nullcontext if config["output_file"] is None else open(config["output_file"], "w")) as f:
+    with (nullcontext() if config["output_file"] is None else open(config["output_file"], "w")) as f:
         print("\n-----------------------------------------------------------------------------------------------\n")
         if config["output_file"] is not None:
             print("\n-----------------------------------------------------"
