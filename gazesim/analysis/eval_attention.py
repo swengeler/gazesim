@@ -722,7 +722,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT_TEMP"),
+    parser.add_argument("-r", "--data_root", type=str, default=os.getenv("GAZESIM_ROOT"),
                         help="The root directory of the dataset (should contain only subfolders for each subject).")
     parser.add_argument("-m", "--model_load_path", type=str, nargs="+", default=None,
                         help="The path to the model checkpoint to use for computing the predictions.")

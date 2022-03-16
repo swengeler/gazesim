@@ -10,7 +10,7 @@ Thus, no detailed instructions will be given for the use of the code for its ori
 pip install .
 ```
 
----
+<!---
 
 The instructions below this line belong to the old `README` and are only included for completeness sake. With the new structure of the [used dataset](https://osf.io/gvdse/), the code will not work.
 
@@ -36,3 +36,4 @@ python src/data/generate_ground_truth.py -gtt drone_control_frame_mean_gt
 ```
 
 To be able to use masked videos, one should first compute the mean mask(s).
+--->
